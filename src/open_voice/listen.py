@@ -1,9 +1,13 @@
-"""Hands-free STT loop: mic + VAD -> local whisper -> herdr agent prompt.
+"""Hands-free STT loop: mic + VAD -> local whisper -> semantic router -> Claude Code.
 
 Cycle: listen to the mic until speech followed by silence (silero VAD),
-transcribe with mlx-whisper, inject into the Claude Code pane via
-`herdr agent prompt` and wait for the turn to finish (herdr wait + idle TTS)
-before reopening the mic.
+transcribe with mlx-whisper, route the utterance (local command, prompt for
+the agent, or ambient speech to discard) and inject prompts into the Claude
+Code pane via `herdr agent prompt`. Earcons mark every transition:
+
+    Tink   mic started capturing        Ping   prompt accepted, cancel window open
+    Pop    utterance captured           Glass  message sent / Enter
+    Bottle discarded as ambient speech  Basso  cancelled / dictation off
 """
 
 import argparse
@@ -25,19 +29,22 @@ VAD_CHUNK = 512  # samples per silero call @16k
 SILENCE_SECONDS = 2.5
 MIN_SPEECH_SECONDS = 0.6
 PREROLL_SECONDS = 1.0  # audio kept before the VAD "start" so leading syllables survive
+CANCEL_WINDOW_SECONDS = 3.0
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 WHISPER_LANGUAGE = "pt"
 TTS_DAEMON_URL = "http://127.0.0.1:8765"
-# wake word "Jarvis": proper noun whisper transcribes stably in pt speech;
-# tolerate one short junk token before it (whisper sometimes prefixes syllables)
-WAKE_WORD_RE = re.compile(
-    r"^(?:[\s,.!?…\"'-]*\w{1,3}[\s,.!?…-]+)?[\s,.!?…\"'-]*jarvis\b[\s,.!?…:-]*",
-    re.IGNORECASE,
-)
 
 
 def log(msg: str) -> None:
     print(f"[open-voice] {msg}", flush=True)
+
+
+def _beep(sound: str) -> None:
+    subprocess.Popen(
+        ["afplay", f"/System/Library/Sounds/{sound}.aiff"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def find_claude_pane() -> str:
@@ -57,14 +64,33 @@ def find_claude_pane() -> str:
     sys.exit(f"Multiple Claude panes active ({ids}) and none focused — use --pane.")
 
 
-def record_utterance(vad_model) -> np.ndarray | None:
-    """Record until speech + SILENCE_SECONDS of silence. None if nothing was said."""
+def _tts_busy(client: httpx.Client) -> bool:
+    try:
+        return client.get(f"{TTS_DAEMON_URL}/busy").json()["busy"]
+    except httpx.HTTPError:
+        return False
+
+
+def record_utterance(
+    vad_model, first_speech_timeout: float | None = None
+) -> np.ndarray | None:
+    """Record until speech + SILENCE_SECONDS of silence.
+
+    None if nothing (or too little) was said — or, when first_speech_timeout is
+    given, if no speech started within that many seconds. Audio captured while
+    the TTS daemon is speaking is discarded (mic echo of the spoken replies).
+    """
     from collections import deque
 
     from silero_vad import VADIterator
 
     vad = VADIterator(vad_model, sampling_rate=VAD_SAMPLE_RATE)
     audio_q: queue.Queue[np.ndarray] = queue.Queue()
+    tts_client = httpx.Client(timeout=2)
+    last_busy_check = 0.0
+    deadline = (
+        time.monotonic() + first_speech_timeout if first_speech_timeout else None
+    )
 
     def callback(indata, frames, time_info, status):
         audio_q.put(indata[:, 0].copy())
@@ -81,7 +107,30 @@ def record_utterance(vad_model) -> np.ndarray | None:
         samplerate=VAD_SAMPLE_RATE, channels=1, dtype="float32", callback=callback
     ):
         while True:
-            buffer = np.concatenate([buffer, audio_q.get()])
+            try:
+                data = audio_q.get(timeout=0.2)
+            except queue.Empty:
+                data = None
+            if not speaking and deadline is not None and time.monotonic() > deadline:
+                tts_client.close()
+                return None
+            if data is None:
+                continue
+            buffer = np.concatenate([buffer, data])
+            now = time.monotonic()
+            if now - last_busy_check >= 0.5:
+                last_busy_check = now
+                if _tts_busy(tts_client):
+                    if speaking:
+                        log("TTS speaking — discarding echo capture")
+                    vad.reset_states()
+                    chunks = []
+                    preroll.clear()
+                    speaking, silence_start = False, None
+                    buffer = np.empty(0, dtype=np.float32)
+                    while not audio_q.empty():
+                        audio_q.get_nowait()
+                    continue
             while len(buffer) >= VAD_CHUNK:
                 chunk, buffer = buffer[:VAD_CHUNK], buffer[VAD_CHUNK:]
                 if speaking:
@@ -92,6 +141,7 @@ def record_utterance(vad_model) -> np.ndarray | None:
                 if event and "start" in event:
                     if not speaking:
                         log("recording...")
+                        _beep("Tink")
                         chunks = [*preroll, chunk]
                         preroll.clear()
                     speaking = True
@@ -105,6 +155,7 @@ def record_utterance(vad_model) -> np.ndarray | None:
                 ):
                     vad.reset_states()
                     audio = np.concatenate(chunks)
+                    tts_client.close()
                     if len(audio) < MIN_SPEECH_SECONDS * VAD_SAMPLE_RATE:
                         return None
                     return audio
@@ -154,15 +205,6 @@ def append_to_composer(pane_id: str, text: str) -> None:
     )
 
 
-def _ack_beep() -> None:
-    """Audible confirmation that the wake word was recognized."""
-    subprocess.Popen(
-        ["afplay", "/System/Library/Sounds/Pop.aiff"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
 def _stop_tts() -> None:
     try:
         httpx.post(f"{TTS_DAEMON_URL}/stop", timeout=2)
@@ -174,6 +216,7 @@ def _act_send_message(pane_id: str) -> None:
     subprocess.run(
         ["herdr", "pane", "send-keys", pane_id, "enter"], capture_output=True
     )
+    _beep("Glass")
 
 
 def _act_pause_execution(pane_id: str) -> None:
@@ -201,6 +244,7 @@ def _act_stop_dictation(pane_id: str) -> None:
     from open_voice.flag import disable
 
     disable()
+    _beep("Basso")
     raise SystemExit(0)
 
 
@@ -212,53 +256,49 @@ INTENT_ACTIONS = {
     "stop_dictation": _act_stop_dictation,
 }
 
-# zero-latency fast path for the common phrasings; the LLM router below covers the rest
+# zero-latency fast path for common phrasings; the LLM router covers the rest
 FAST_PATTERNS = [
     (re.compile(r"\b(envi\w+|manda\w*)\b.*\bmensagem\b"), "send_message"),
     (re.compile(r"\b(pause?|pausar|pare?|parar)\b.*\bexecu[çc][ãa]o\b"), "pause_execution"),
     (re.compile(r"\b(pare?|parar|pause?)\b.*\bm[íi]dias?\b|\bm[úu]sica\b"), "stop_media"),
     (re.compile(r"\b(pare?|parar)\b.*\bfalar\b|\bsil[êe]ncio\b"), "stop_speaking"),
     (re.compile(r"\b(pare?|parar|deslig\w+)\b.*\b(ditado|microfone|escuta)\b"), "stop_dictation"),
+    (re.compile(r"\bn[ãa]o\s+(mand\w+|envi\w+)\b|\bcancela\w*\b|\bdon'?t\s+send\b"), "cancel"),
 ]
-CLASSIFY_MAX_WORDS = 8
 
-CLASSIFY_PROMPT = """You route voice utterances captured during a coding session. Reply with exactly one word from this list and nothing else:
+ROUTE_PROMPT = """You gate a hands-free microphone attached to a coding agent session. The mic hears everything, including speech not meant for the agent. Given a transcribed utterance (any language), reply with exactly one word from this list and nothing else:
+send - addressed to the coding agent: a request, question, instruction, or dictated message
+discard - ambient speech not addressed to the agent: conversation with other people, phone calls, filler, noise
+cancel - user wants the pending message NOT to be sent ("não mande", "don't send", "cancela")
 send_message - user wants to submit the message drafted in the input box
 pause_execution - user wants to interrupt or pause the running coding agent
 stop_media - user wants to stop or pause music or other media playing
 stop_speaking - user wants the text-to-speech voice to stop talking
 stop_dictation - user wants to turn off the microphone or dictation
-prompt - anything else: a message meant for the coding agent
+When unsure between send and discard, reply discard.
 
-Utterance (Portuguese or English): {text}"""
+Utterance: {text}"""
+
+ROUTE_LABELS = {"send", "discard", "cancel", *INTENT_ACTIONS}
 
 
-def classify_intent(text: str) -> str:
-    """LLM fallback router; any failure or unknown label falls back to prompt."""
+def route(text: str) -> str:
+    """Classify an utterance; any LLM failure or unknown label becomes discard."""
+    low = text.lower()
+    fast = next((i for rx, i in FAST_PATTERNS if rx.search(low)), None)
+    if fast:
+        return fast
     try:
         result = subprocess.run(
-            ["claude", "-p", "--model", "haiku", CLASSIFY_PROMPT.format(text=text)],
+            ["claude", "-p", "--model", "haiku", ROUTE_PROMPT.format(text=text)],
             capture_output=True,
             text=True,
             timeout=30,
         )
     except (subprocess.TimeoutExpired, OSError):
-        return "prompt"
+        return "discard"
     label = result.stdout.strip().lower()
-    return label if label in INTENT_ACTIONS else "prompt"
-
-
-def handle_command(pane_id: str, text: str) -> bool:
-    """Resolve local voice commands; False means the text is a prompt for Claude."""
-    low = text.lower()
-    intent = next((i for rx, i in FAST_PATTERNS if rx.search(low)), None)
-    if intent is None and len(text.split()) <= CLASSIFY_MAX_WORDS:
-        intent = classify_intent(text)
-    if intent is None or intent == "prompt":
-        return False
-    log(f"command: {intent}")
-    INTENT_ACTIONS[intent](pane_id)
-    return True
+    return label if label in ROUTE_LABELS else "discard"
 
 
 def send_to_claude(pane_id: str, text: str) -> bool:
@@ -285,6 +325,34 @@ def wait_tts_idle() -> None:
             time.sleep(0.3)
 
 
+def collect_prompt(vad_model, pane_id: str, text: str) -> str | None:
+    """Cancel/continuation window: after a prompt is accepted, keep the mic open
+    for CANCEL_WINDOW_SECONDS — a cancel utterance drops it, another prompt
+    utterance extends it, silence confirms it."""
+    while True:
+        _beep("Ping")
+        extra = record_utterance(vad_model, first_speech_timeout=CANCEL_WINDOW_SECONDS)
+        if extra is None:
+            return text
+        more = transcribe(extra)
+        if not more:
+            return text
+        intent = route(more)
+        if intent == "cancel":
+            log("cancelled by user")
+            _beep("Basso")
+            return None
+        if intent == "send":
+            log(f"+> {more}")
+            text = f"{text} {more}"
+            continue
+        if intent in INTENT_ACTIONS:
+            log(f"command: {intent}")
+            INTENT_ACTIONS[intent](pane_id)
+            continue
+        return text  # ambient chatter during the window: confirm the prompt
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="open-voice hands-free listener")
     parser.add_argument("--pane", help="target pane (e.g. w1:pD); default: autodetect")
@@ -300,13 +368,12 @@ def main() -> None:
 
     import atexit
     import os
+    import threading
     from pathlib import Path
 
     state = Path.home() / ".claude" / "open-voice-listener.json"
     state.write_text(json.dumps({"pid": os.getpid(), "pane": pane_id}))
     atexit.register(lambda: state.unlink(missing_ok=True))
-
-    import threading
 
     from open_voice.transcript_follower import follow
 
@@ -326,30 +393,37 @@ def main() -> None:
                 continue
             if audio is None:
                 continue
+            _beep("Pop")
             text = transcribe(audio)
             if not text:
                 continue
-            stripped = WAKE_WORD_RE.sub("", text, count=1).strip()
-            if stripped == text.strip():
-                log(f"no wake word — ignored: {text[:60]!r}")
+            intent = route(text)
+            if intent == "discard":
+                log(f"discarded as ambient: {text[:60]!r}")
+                _beep("Bottle")
                 continue
-            if not stripped:
+            if intent == "cancel":
+                _beep("Basso")
+                continue  # nothing pending to cancel
+            if intent in INTENT_ACTIONS:
+                log(f"command: {intent}")
+                INTENT_ACTIONS[intent](pane_id)
                 continue
-            text = stripped
-            _ack_beep()
             log(f"-> {text}")
-            if handle_command(pane_id, text):
+            final = collect_prompt(vad_model, pane_id, text)
+            if final is None:
                 continue
             draft = composer_draft(pane_id)
             if draft:
                 # user is mid-typing: append the transcription without sending
-                append_to_composer(pane_id, text)
+                append_to_composer(pane_id, final)
                 log(f"draft in composer — appended, not sent (draft: {draft[:60]!r})")
                 continue
-            if not send_to_claude(pane_id, text):
+            _beep("Glass")
+            if not send_to_claude(pane_id, final):
                 # pane may have changed (new session, closed pane); re-resolve and retry
                 pane_id = args.pane or find_claude_pane()
-                send_to_claude(pane_id, text)
+                send_to_claude(pane_id, final)
             wait_tts_idle()
     except KeyboardInterrupt:
         print()
