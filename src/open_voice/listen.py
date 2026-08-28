@@ -30,6 +30,9 @@ SILENCE_SECONDS = 2.5
 MIN_SPEECH_SECONDS = 0.6
 PREROLL_SECONDS = 1.0  # audio kept before the VAD "start" so leading syllables survive
 CANCEL_WINDOW_SECONDS = 3.0
+VAD_THRESHOLD = 0.7  # silero speech probability (default 0.5); higher rejects faint audio
+RMS_GATE_RATIO = 4.0  # speech onset must be this many times louder than the noise floor
+RMS_BARGE_RATIO = 8.0  # stricter gate while TTS speaks; passing it interrupts the speech
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 WHISPER_LANGUAGE = "pt"
 TTS_DAEMON_URL = "http://127.0.0.1:8765"
@@ -84,7 +87,8 @@ def record_utterance(
 
     from silero_vad import VADIterator
 
-    vad = VADIterator(vad_model, sampling_rate=VAD_SAMPLE_RATE)
+    vad = VADIterator(vad_model, sampling_rate=VAD_SAMPLE_RATE, threshold=VAD_THRESHOLD)
+    noise_rms = 0.003  # EMA of the ambient noise floor, seeded conservatively
     audio_q: queue.Queue[np.ndarray] = queue.Queue()
     tts_client = httpx.Client(timeout=2)
     last_busy_check = 0.0
@@ -117,35 +121,35 @@ def record_utterance(
             if data is None:
                 continue
             buffer = np.concatenate([buffer, data])
-            now = time.monotonic()
-            if now - last_busy_check >= 0.5:
-                last_busy_check = now
-                if _tts_busy(tts_client):
-                    if speaking:
-                        log("TTS speaking — discarding echo capture")
-                    vad.reset_states()
-                    chunks = []
-                    preroll.clear()
-                    speaking, silence_start = False, None
-                    buffer = np.empty(0, dtype=np.float32)
-                    while not audio_q.empty():
-                        audio_q.get_nowait()
-                    continue
             while len(buffer) >= VAD_CHUNK:
                 chunk, buffer = buffer[:VAD_CHUNK], buffer[VAD_CHUNK:]
                 if speaking:
                     chunks.append(chunk)
                 else:
                     preroll.append(chunk)
+                    chunk_rms = float(np.sqrt(np.mean(chunk**2)))
+                    noise_rms = 0.98 * noise_rms + 0.02 * chunk_rms
                 event = vad(chunk)
                 if event and "start" in event:
                     if not speaking:
-                        # re-check at the exact start: the 0.5s busy poll leaves a
-                        # window where TTS speech would open the mic and beep
-                        if _tts_busy(tts_client):
+                        # energy gate: direct voice is far louder at the mic than
+                        # TTS echo leaking from the headphones; while the TTS is
+                        # speaking the bar is higher and passing it interrupts it
+                        # (barge-in)
+                        onset_rms = float(np.sqrt(np.mean(chunk**2)))
+                        busy = _tts_busy(tts_client)
+                        ratio = RMS_BARGE_RATIO if busy else RMS_GATE_RATIO
+                        if onset_rms < noise_rms * ratio:
+                            log(
+                                f"start rejected by energy gate "
+                                f"(rms {onset_rms:.4f} < {ratio}x floor {noise_rms:.4f})"
+                            )
                             vad.reset_states()
                             continue
-                        log("recording...")
+                        if busy:
+                            _stop_tts()
+                            log("barge-in: TTS interrupted")
+                        log(f"recording... (rms {onset_rms:.4f}, floor {noise_rms:.4f})")
                         _beep("Blow")
                         chunks = [*preroll, chunk]
                         preroll.clear()
@@ -166,13 +170,18 @@ def record_utterance(
                     return audio
 
 
+def trim_repetition(text: str) -> str:
+    """Collapse whisper hallucination loops (a phrase repeated 3+ times in a row)."""
+    return re.sub(r"(?i)(\b.{3,80}?)(?:[\s,.!?…-]+\1){2,}", r"\1", text)
+
+
 def transcribe(audio: np.ndarray) -> str:
     import mlx_whisper
 
     result = mlx_whisper.transcribe(
         audio, path_or_hf_repo=WHISPER_MODEL, language=WHISPER_LANGUAGE
     )
-    return result["text"].strip()
+    return trim_repetition(result["text"].strip())
 
 
 def composer_draft(pane_id: str) -> str:
@@ -456,6 +465,10 @@ def collect_prompt(vad_model, pane_id: str, text: str) -> str | None:
         return text
 
 
+def _normalize(text: str) -> str:
+    return " ".join(text.split())
+
+
 def _watch_pane(pane_id: str) -> None:
     """Shut everything down when the target pane closes — closing the session
     in the multiplexer is the intentional 'voice off' gesture."""
@@ -507,6 +520,7 @@ def main() -> None:
 
     log(f"ready — target: {pane_id}. Speak; {SILENCE_SECONDS}s of silence sends.")
 
+    appended_orphan: str | None = None
     try:
         while True:
             try:
@@ -536,11 +550,27 @@ def main() -> None:
             if final is None:
                 continue
             draft = composer_draft(pane_id)
+            if draft and _normalize(draft) == _normalize(appended_orphan or ""):
+                # the "draft" is our own previously appended text (user typed
+                # nothing since): append the new utterance and flush with Enter
+                append_to_composer(pane_id, final)
+                time.sleep(0.3)
+                subprocess.run(
+                    ["herdr", "pane", "send-keys", pane_id, "enter"],
+                    capture_output=True,
+                )
+                log("flushed orphaned composer text with Enter")
+                appended_orphan = None
+                _beep("Glass")
+                wait_tts_idle()
+                continue
             if draft:
                 # user is mid-typing: append the transcription without sending
                 append_to_composer(pane_id, final)
+                appended_orphan = f"{draft} {final}"
                 log(f"draft in composer — appended, not sent (draft: {draft[:60]!r})")
                 continue
+            appended_orphan = None
             _beep("Glass")
             if not send_to_claude(pane_id, final):
                 # pane may have changed (new session, closed pane); re-resolve and retry
