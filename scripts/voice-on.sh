@@ -15,13 +15,10 @@ fi
 
 if pgrep -f open-voice-listen >/dev/null 2>&1; then
   echo "listener já rodando"
-elif [ "${HERDR_ENV:-}" = "1" ] && [ -n "${HERDR_PANE_ID:-}" ]; then
-  # o listener detecta o pane alvo sozinho; --no-focus mantém o usuário onde está
-  NEW_PANE=$(herdr pane split --pane "$HERDR_PANE_ID" --direction down --ratio 0.2 \
-    --cwd "$REPO_DIR" --no-focus | python3 -c "import json,sys; print(json.load(sys.stdin)['result']['pane']['pane_id'])")
-  herdr pane run "$NEW_PANE" "uv run open-voice-listen --pane $HERDR_PANE_ID" >/dev/null
-  echo "listener iniciado no pane $NEW_PANE (alvo: $HERDR_PANE_ID)"
 else
-  echo "fora do herdr: rode 'uv run open-voice-listen' num terminal separado"
+  # sem pane/TTY: o mic vem do CoreAudio e a permissão é do app terminal
+  nohup uv run --project "$REPO_DIR" open-voice-listen ${HERDR_PANE_ID:+--pane "$HERDR_PANE_ID"} \
+    >"$HOME/.claude/open-voice-listen.log" 2>&1 &
+  echo "listener em background (alvo: ${HERDR_PANE_ID:-autodetect}; log: ~/.claude/open-voice-listen.log)"
 fi
 echo "modo voz: ON"
