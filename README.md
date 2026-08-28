@@ -60,7 +60,7 @@ scripts/voice-off.sh   # flag off, stop speech, kill listener (daemon stays warm
 
 Wire them to `/voice-on` and `/voice-off` slash commands in `~/.claude/commands/` for in-session toggling.
 
-Start every utterance with the wake word **"OK Agent"** (accent-tolerant: "ok agente" and "ok a gente" also match); anything else the mic picks up is discarded. Speak; 2.5 s of silence sends the utterance to Claude. If you have a typed draft in the composer, the transcription is appended to it instead of being auto-sent. The final reply of each turn is spoken automatically; mid-turn text is spoken live (while tools run) when Claude prefixes it with 🔊 — the transcript follower tails the session JSONL and speaks marked blocks as they arrive. Instruct Claude in your CLAUDE.md to prefix noteworthy mid-turn updates with 🔊.
+Start every utterance with the wake word **"Jarvis"** (chosen because whisper transcribes it stably regardless of accent); anything else the mic picks up is discarded. Speak; 2.5 s of silence sends the utterance to Claude. If you have a typed draft in the composer, the transcription is appended to it instead of being auto-sent. The final reply of each turn is spoken automatically; mid-turn text is spoken live (while tools run) when Claude prefixes it with 🔊 — the transcript follower tails the session JSONL and speaks marked blocks as they arrive. Instruct Claude in your CLAUDE.md to prefix noteworthy mid-turn updates with 🔊.
 
 ## Configuration
 

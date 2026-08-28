@@ -24,14 +24,14 @@ VAD_SAMPLE_RATE = 16_000
 VAD_CHUNK = 512  # samples per silero call @16k
 SILENCE_SECONDS = 2.5
 MIN_SPEECH_SECONDS = 0.6
-PREROLL_SECONDS = 0.5  # audio kept before the VAD "start" so leading syllables survive
+PREROLL_SECONDS = 1.0  # audio kept before the VAD "start" so leading syllables survive
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 WHISPER_LANGUAGE = "pt"
 TTS_DAEMON_URL = "http://127.0.0.1:8765"
-# wake word "OK Agent", tolerant to how whisper renders it across accents:
-# "ok agent", "ok agente", "ok a gente", "okay, agente", etc.
+# wake word "Jarvis": proper noun whisper transcribes stably in pt speech;
+# tolerate one short junk token before it (whisper sometimes prefixes syllables)
 WAKE_WORD_RE = re.compile(
-    r"^[\s,.!?…-]*ok(?:ay)?[\s,.!?…-]*(?:a\s*gente|agente?)\b[\s,.!?…:-]*",
+    r"^(?:[\s,.!?…\"'-]*\w{1,3}[\s,.!?…-]+)?[\s,.!?…\"'-]*jarvis\b[\s,.!?…:-]*",
     re.IGNORECASE,
 )
 
