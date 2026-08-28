@@ -469,14 +469,38 @@ def _normalize(text: str) -> str:
     return " ".join(text.split())
 
 
+def _restart_tts_daemon() -> None:
+    """Relaunch the TTS daemon detached, logging to the usual file."""
+    from pathlib import Path
+
+    daemon = Path(sys.executable).parent / "open-voice-tts-daemon"
+    logfile = open(Path.home() / ".claude" / "open-voice-tts.log", "a")
+    subprocess.Popen(
+        [str(daemon)], stdout=logfile, stderr=logfile, start_new_session=True
+    )
+
+
 def _watch_pane(pane_id: str) -> None:
     """Shut everything down when the target pane closes — closing the session
-    in the multiplexer is the intentional 'voice off' gesture."""
+    in the multiplexer is the intentional 'voice off' gesture. Also restarts
+    the TTS daemon if it dies (device changes and memory pressure kill it)."""
     import os
 
     failures = 0
+    daemon_failures = 0
     while True:
         time.sleep(10)
+        try:
+            httpx.get(f"{TTS_DAEMON_URL}/health", timeout=2)
+            daemon_failures = 0
+        except httpx.HTTPError:
+            daemon_failures += 1
+            if daemon_failures >= 2 and not subprocess.run(
+                ["pgrep", "-f", "open-voice-tts-daemon"], capture_output=True
+            ).returncode == 0:
+                log("TTS daemon down — restarting it")
+                _restart_tts_daemon()
+                daemon_failures = 0
         result = subprocess.run(
             ["herdr", "pane", "get", pane_id], capture_output=True, text=True
         )
