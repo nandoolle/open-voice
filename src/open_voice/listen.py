@@ -154,33 +154,111 @@ def append_to_composer(pane_id: str, text: str) -> None:
     )
 
 
-def handle_command(pane_id: str, text: str) -> bool:
-    """Local voice commands, resolved without touching the Claude session."""
-    low = text.lower()
-    if re.search(r"\b(envi\w+|manda\w*)\b.*\bmensagem\b", low):
-        subprocess.run(
-            ["herdr", "pane", "send-keys", pane_id, "enter"], capture_output=True
-        )
-        log("command: send message")
-        return True
-    if re.search(r"\b(pare?|parar)\b.*\bfalar\b|\bsil[êe]ncio\b", low):
-        try:
-            httpx.post(f"{TTS_DAEMON_URL}/stop", timeout=2)
-        except httpx.HTTPError:
-            pass
-        log("command: stop speaking")
-        return True
-    if re.search(r"\b(pare?|parar|deslig\w+)\b.*\b(ditado|microfone|escuta)\b", low):
-        log("command: stop dictation — exiting")
-        try:
-            httpx.post(f"{TTS_DAEMON_URL}/stop", timeout=2)
-        except httpx.HTTPError:
-            pass
-        from open_voice.flag import disable
+def _ack_beep() -> None:
+    """Audible confirmation that the wake word was recognized."""
+    subprocess.Popen(
+        ["afplay", "/System/Library/Sounds/Pop.aiff"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-        disable()
-        raise SystemExit(0)
-    return False
+
+def _stop_tts() -> None:
+    try:
+        httpx.post(f"{TTS_DAEMON_URL}/stop", timeout=2)
+    except httpx.HTTPError:
+        pass
+
+
+def _act_send_message(pane_id: str) -> None:
+    subprocess.run(
+        ["herdr", "pane", "send-keys", pane_id, "enter"], capture_output=True
+    )
+
+
+def _act_pause_execution(pane_id: str) -> None:
+    _stop_tts()
+    subprocess.run(
+        ["herdr", "agent", "send-keys", pane_id, "esc"], capture_output=True
+    )
+
+
+def _act_stop_media(pane_id: str) -> None:
+    # best effort: pause the media apps that expose an AppleScript pause
+    for app in ("Spotify", "Music"):
+        subprocess.run(
+            ["osascript", "-e", f'tell application "{app}" to pause'],
+            capture_output=True,
+        )
+
+
+def _act_stop_speaking(pane_id: str) -> None:
+    _stop_tts()
+
+
+def _act_stop_dictation(pane_id: str) -> None:
+    _stop_tts()
+    from open_voice.flag import disable
+
+    disable()
+    raise SystemExit(0)
+
+
+INTENT_ACTIONS = {
+    "send_message": _act_send_message,
+    "pause_execution": _act_pause_execution,
+    "stop_media": _act_stop_media,
+    "stop_speaking": _act_stop_speaking,
+    "stop_dictation": _act_stop_dictation,
+}
+
+# zero-latency fast path for the common phrasings; the LLM router below covers the rest
+FAST_PATTERNS = [
+    (re.compile(r"\b(envi\w+|manda\w*)\b.*\bmensagem\b"), "send_message"),
+    (re.compile(r"\b(pause?|pausar|pare?|parar)\b.*\bexecu[çc][ãa]o\b"), "pause_execution"),
+    (re.compile(r"\b(pare?|parar|pause?)\b.*\bm[íi]dias?\b|\bm[úu]sica\b"), "stop_media"),
+    (re.compile(r"\b(pare?|parar)\b.*\bfalar\b|\bsil[êe]ncio\b"), "stop_speaking"),
+    (re.compile(r"\b(pare?|parar|deslig\w+)\b.*\b(ditado|microfone|escuta)\b"), "stop_dictation"),
+]
+CLASSIFY_MAX_WORDS = 8
+
+CLASSIFY_PROMPT = """You route voice utterances captured during a coding session. Reply with exactly one word from this list and nothing else:
+send_message - user wants to submit the message drafted in the input box
+pause_execution - user wants to interrupt or pause the running coding agent
+stop_media - user wants to stop or pause music or other media playing
+stop_speaking - user wants the text-to-speech voice to stop talking
+stop_dictation - user wants to turn off the microphone or dictation
+prompt - anything else: a message meant for the coding agent
+
+Utterance (Portuguese or English): {text}"""
+
+
+def classify_intent(text: str) -> str:
+    """LLM fallback router; any failure or unknown label falls back to prompt."""
+    try:
+        result = subprocess.run(
+            ["claude", "-p", "--model", "haiku", CLASSIFY_PROMPT.format(text=text)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return "prompt"
+    label = result.stdout.strip().lower()
+    return label if label in INTENT_ACTIONS else "prompt"
+
+
+def handle_command(pane_id: str, text: str) -> bool:
+    """Resolve local voice commands; False means the text is a prompt for Claude."""
+    low = text.lower()
+    intent = next((i for rx, i in FAST_PATTERNS if rx.search(low)), None)
+    if intent is None and len(text.split()) <= CLASSIFY_MAX_WORDS:
+        intent = classify_intent(text)
+    if intent is None or intent == "prompt":
+        return False
+    log(f"command: {intent}")
+    INTENT_ACTIONS[intent](pane_id)
+    return True
 
 
 def send_to_claude(pane_id: str, text: str) -> bool:
@@ -258,6 +336,7 @@ def main() -> None:
             if not stripped:
                 continue
             text = stripped
+            _ack_beep()
             log(f"-> {text}")
             if handle_command(pane_id, text):
                 continue
