@@ -264,6 +264,38 @@ def _act_stop_speaking(pane_id: str) -> None:
     _stop_tts()
 
 
+def _set_volume(delta: int) -> None:
+    subprocess.run(
+        [
+            "osascript",
+            "-e",
+            f"set volume output volume ((output volume of (get volume settings)) + {delta})",
+        ],
+        capture_output=True,
+    )
+
+
+def _act_volume_up(pane_id: str) -> None:
+    _set_volume(15)
+
+
+def _act_volume_down(pane_id: str) -> None:
+    _set_volume(-15)
+
+
+def _act_repeat_message(pane_id: str) -> None:
+    """Re-speak the last assistant reply from the session transcript."""
+    from open_voice.stop_hook import last_assistant_text, strip_markdown
+    from open_voice.transcript_follower import _say, _transcript_path
+
+    path = _transcript_path(pane_id)
+    text = strip_markdown(last_assistant_text(str(path))) if path else ""
+    if text:
+        _say(text)
+    else:
+        _beep("Basso")
+
+
 def _act_stop_dictation(pane_id: str) -> None:
     _stop_tts()
     from open_voice.flag import disable
@@ -279,6 +311,9 @@ INTENT_ACTIONS = {
     "stop_media": _act_stop_media,
     "stop_speaking": _act_stop_speaking,
     "stop_dictation": _act_stop_dictation,
+    "volume_up": _act_volume_up,
+    "volume_down": _act_volume_down,
+    "repeat_message": _act_repeat_message,
 }
 
 # zero-latency fast path for common phrasings; the LLM router covers the rest
@@ -289,6 +324,9 @@ FAST_PATTERNS = [
     (re.compile(r"\b(pare?|parar)\b.*\bfalar\b|\bsil[êe]ncio\b"), "stop_speaking"),
     (re.compile(r"\b(pare?|parar|deslig\w+)\b.*\b(ditado|microfone|escuta)\b"), "stop_dictation"),
     (re.compile(r"\bn[ãa]o\s+(mand\w+|envi\w+)\b|\bcancela\w*\b|\bdon'?t\s+send\b"), "cancel"),
+    (re.compile(r"\b(aumenta\w*|sobe|levanta)\b.*\bvolume\b|\bmais\s+alto\b"), "volume_up"),
+    (re.compile(r"\b(diminui\w*|abaixa\w*|desce)\b.*\bvolume\b|\bmais\s+baixo\b"), "volume_down"),
+    (re.compile(r"\brepet\w+\b.*\b(mensagem|resposta|fala)\b"), "repeat_message"),
 ]
 
 ROUTE_PROMPT = """Classify one voice utterance (any language) with exactly one label:
@@ -299,6 +337,9 @@ pause_execution = explicitly asks to pause/interrupt the agent's execution
 stop_media = explicitly asks to stop music/media
 stop_speaking = explicitly asks the voice to stop talking
 stop_dictation = explicitly asks to turn off the microphone/dictation
+volume_up = explicitly asks to raise the volume
+volume_down = explicitly asks to lower the volume
+repeat_message = explicitly asks to repeat the last reply
 
 Examples:
 "oi tudo bem?" -> send
@@ -310,6 +351,9 @@ Examples:
 "para a música" -> stop_media
 "fica quieto" -> stop_speaking
 "desliga o microfone" -> stop_dictation
+"aumenta o som" -> volume_up
+"fala mais baixo" -> volume_down
+"repete o que você disse" -> repeat_message
 "manda ver" -> send
 
 Commands require explicit wording; anything vague or conversational is send.
