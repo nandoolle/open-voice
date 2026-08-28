@@ -382,6 +382,27 @@ def collect_prompt(vad_model, pane_id: str, text: str) -> str | None:
         return text
 
 
+def _watch_pane(pane_id: str) -> None:
+    """Shut everything down when the target pane closes — closing the session
+    in the multiplexer is the intentional 'voice off' gesture."""
+    import os
+
+    failures = 0
+    while True:
+        time.sleep(10)
+        result = subprocess.run(
+            ["herdr", "pane", "get", pane_id], capture_output=True, text=True
+        )
+        failures = failures + 1 if result.returncode != 0 else 0
+        if failures >= 2:
+            log("target pane gone — shutting voice mode down")
+            from open_voice.flag import disable
+
+            disable()
+            subprocess.run(["pkill", "-f", "open-voice-tts-daemon"], capture_output=True)
+            os._exit(0)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="open-voice hands-free listener")
     parser.add_argument("--pane", help="target pane (e.g. w1:pD); default: autodetect")
@@ -408,6 +429,7 @@ def main() -> None:
     from open_voice.transcript_follower import follow
 
     threading.Thread(target=follow, args=(pane_id,), daemon=True).start()
+    threading.Thread(target=_watch_pane, args=(pane_id,), daemon=True).start()
 
     log(f"ready — target: {pane_id}. Speak; {SILENCE_SECONDS}s of silence sends.")
 
