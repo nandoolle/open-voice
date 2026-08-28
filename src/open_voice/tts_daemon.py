@@ -108,6 +108,12 @@ def _speak_loop() -> None:
         text = _say_queue.get()
         _interrupt.clear()
         _speaking.set()
+        # follow the CURRENT system default output: PortAudio freezes the device
+        # list at init, so a headset connected later would never receive audio
+        try:
+            reset_portaudio()
+        except Exception:
+            pass
         try:
             for audio in _engine.synth_chunks(text):
                 if _interrupt.is_set():

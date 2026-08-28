@@ -7,7 +7,7 @@ Code pane via `herdr agent prompt`. Earcons mark every transition:
 
     Tink   mic started capturing        Ping   prompt accepted, cancel window open
     Pop    utterance captured           Glass  message sent / Enter
-    Bottle discarded as ambient speech  Basso  cancelled / dictation off
+    Basso  cancelled / dictation off
 """
 
 import argparse
@@ -266,30 +266,32 @@ FAST_PATTERNS = [
     (re.compile(r"\bn[ãa]o\s+(mand\w+|envi\w+)\b|\bcancela\w*\b|\bdon'?t\s+send\b"), "cancel"),
 ]
 
-ROUTE_PROMPT = """You gate a hands-free microphone attached to a coding agent session. The mic hears everything, including speech not meant for the agent. Given a transcribed utterance (any language), reply with exactly one word from this list and nothing else:
-send - addressed to the coding agent: a request, question, instruction, or dictated message
-discard - clearly not addressed to the agent: conversation with other people in the room, phone calls, media audio
-cancel - user wants the pending message NOT to be sent ("não mande", "don't send", "cancela")
+ROUTE_PROMPT = """You detect voice commands in utterances dictated to a coding agent. Given a transcribed utterance (any language), reply with exactly one word from this list and nothing else:
+send - a message for the coding agent (the default for anything below)
+cancel - ONLY when the utterance explicitly asks not to send the pending message ("não mande", "don't send", "cancela isso")
 send_message - user wants to submit the message drafted in the input box
 pause_execution - user wants to interrupt or pause the running coding agent
 stop_media - user wants to stop or pause music or other media playing
 stop_speaking - user wants the text-to-speech voice to stop talking
 stop_dictation - user wants to turn off the microphone or dictation
-The user is usually talking to the agent: comments, feedback, and reactions about what is on screen count as send. Reply discard only when the utterance is clearly directed at someone else. When unsure, reply send.
+Never guess a command from vague wording; when in any doubt, reply send.
 
 Utterance: {text}"""
 
-ROUTE_LABELS = {"send", "discard", "cancel", *INTENT_ACTIONS}
+ROUTE_LABELS = {"send", "cancel", *INTENT_ACTIONS}
+COMMAND_MAX_WORDS = 8
 
 
 def route(text: str) -> str:
-    """Classify an utterance; any LLM failure or unknown label becomes send
-    (send-biased on purpose: the cancel window catches mistakes, a discarded
-    message is silently lost)."""
+    """Everything is a message unless an explicit command matches. Commands and
+    cancel must be explicit (fast regex, or haiku for short utterances only);
+    long utterances are dictation and skip the LLM entirely."""
     low = text.lower()
     fast = next((i for rx, i in FAST_PATTERNS if rx.search(low)), None)
     if fast:
         return fast
+    if len(text.split()) > COMMAND_MAX_WORDS:
+        return "send"
     try:
         result = subprocess.run(
             ["claude", "-p", "--model", "haiku", ROUTE_PROMPT.format(text=text)],
@@ -352,7 +354,7 @@ def collect_prompt(vad_model, pane_id: str, text: str) -> str | None:
             log(f"command: {intent}")
             INTENT_ACTIONS[intent](pane_id)
             continue
-        return text  # ambient chatter during the window: confirm the prompt
+        return text
 
 
 def main() -> None:
@@ -400,10 +402,6 @@ def main() -> None:
             if not text:
                 continue
             intent = route(text)
-            if intent == "discard":
-                log(f"discarded as ambient: {text[:60]!r}")
-                _beep("Bottle")
-                continue
             if intent == "cancel":
                 _beep("Basso")
                 continue  # nothing pending to cancel
