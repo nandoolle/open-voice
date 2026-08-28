@@ -67,6 +67,16 @@ def find_claude_pane() -> str:
     sys.exit(f"Multiple Claude panes active ({ids}) and none focused — use --pane.")
 
 
+def _output_is_builtin_speakers() -> bool:
+    """True when the default output is the Mac's own speakers — TTS then reaches
+    the mic as loud as direct voice, so barge-in cannot be trusted."""
+    try:
+        name = sd.query_devices(sd.default.device[1])["name"].lower()
+    except Exception:
+        return False
+    return "speaker" in name or "alto-falante" in name
+
+
 def _tts_busy(client: httpx.Client) -> bool:
     try:
         return client.get(f"{TTS_DAEMON_URL}/busy").json()["busy"]
@@ -138,6 +148,11 @@ def record_utterance(
                         # (barge-in)
                         onset_rms = float(np.sqrt(np.mean(chunk**2)))
                         busy = _tts_busy(tts_client)
+                        if busy and _output_is_builtin_speakers():
+                            # speaker echo reaches the mic as loud as direct
+                            # voice: no barge-in, discard until TTS finishes
+                            vad.reset_states()
+                            continue
                         ratio = RMS_BARGE_RATIO if busy else RMS_GATE_RATIO
                         if onset_rms < noise_rms * ratio:
                             log(
