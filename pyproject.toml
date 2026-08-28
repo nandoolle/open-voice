@@ -1,0 +1,28 @@
+[project]
+name = "open-voice"
+version = "0.1.0"
+description = "Voice ping-pong (TTS/STT local) para o Claude Code via herdr"
+readme = "README.md"
+authors = [
+    { name = "Fernando Ollé", email = "fernando.olle@icloud.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "kokoro>=0.9.4",
+    "mlx-whisper>=0.4.3",
+    "silero-vad>=6.2.1",
+    "sounddevice>=0.5.6",
+    "soundfile>=0.14.0",
+    "uvicorn>=0.52.4",
+]
+
+[project.scripts]
+open-voice-tts-daemon = "open_voice.tts_daemon:main"
+open-voice-stop-hook = "open_voice.stop_hook:main"
+open-voice-listen = "open_voice.listen:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
