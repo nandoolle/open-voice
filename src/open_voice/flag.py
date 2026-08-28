@@ -1,4 +1,4 @@
-"""Flag file que liga/desliga o modo voz (toggle via /voice-on e /voice-off)."""
+"""Flag file that toggles voice mode (via /voice-on and /voice-off)."""
 
 from pathlib import Path
 

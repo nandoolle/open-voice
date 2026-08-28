@@ -1,8 +1,8 @@
-"""Stop hook do Claude Code: extrai a última resposta do transcript e manda ao daemon TTS.
+"""Claude Code Stop hook: extract the last reply from the transcript and send it to the TTS daemon.
 
-Recebe o payload do hook via stdin (JSON com transcript_path). Sai cedo e em
-silêncio se a flag voice-enabled não existir ou se o daemon estiver fora do ar.
-Só stdlib — o hook roda a cada resposta e precisa ser barato.
+Receives the hook payload via stdin (JSON with transcript_path). Exits early
+and silently if the voice-enabled flag is absent or the daemon is down.
+Stdlib only — the hook runs on every reply and must stay cheap.
 """
 
 import json
@@ -13,14 +13,14 @@ import urllib.request
 from pathlib import Path
 
 DAEMON_URL = "http://127.0.0.1:8765"
-# U+2060 (word joiner): invisível; presença numa mensagem = "leia esta em voz alta"
+# U+2060 (word joiner): invisible; its presence in a message means "read this one aloud"
 SPEAK_MARKER = "⁠"
 FLAG_PATH = Path.home() / ".claude" / "voice-enabled"
 MAX_CHARS = 1500
 
 
 def _is_human_message(entry: dict) -> bool:
-    """Mensagem digitada pelo usuário — tool_results também chegam como type user."""
+    """Message typed by the user — tool_results also arrive as type user."""
     if entry.get("type") != "user":
         return False
     content = entry.get("message", {}).get("content")
@@ -34,7 +34,7 @@ def _is_human_message(entry: dict) -> bool:
 
 
 def last_assistant_text(transcript_path: str) -> str:
-    """Texto assistant do último turno (tudo após a última mensagem humana)."""
+    """Assistant text of the last turn (everything after the last human message)."""
     texts: list[str] = []
     with open(transcript_path, encoding="utf-8") as f:
         for line in f:
@@ -58,13 +58,13 @@ def last_assistant_text(transcript_path: str) -> str:
     marked = [t for t in texts if SPEAK_MARKER in t]
     if marked:
         return "\n".join(t.replace(SPEAK_MARKER, "") for t in marked)
-    # sem marcador: só a resposta final, não os textos entre tool calls
+    # no marker: only the final reply, not the text between tool calls
     return texts[-1] if texts else ""
 
 
 def strip_markdown(text: str) -> str:
-    """Remove ruído de markdown que soa mal em TTS."""
-    text = re.sub(r"```.*?```", " Bloco de código omitido. ", text, flags=re.DOTALL)
+    """Remove markdown noise that sounds bad through TTS."""
+    text = re.sub(r"```.*?```", " Code block omitted. ", text, flags=re.DOTALL)
     text = re.sub(r"`([^`]*)`", r"\1", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
@@ -73,22 +73,14 @@ def strip_markdown(text: str) -> str:
     return re.sub(r"\n{2,}", "\n", text).strip()
 
 
-def _log(msg: str) -> None:
-    import datetime
-
-    with open(Path.home() / ".claude" / "open-voice-hook.log", "a") as f:
-        f.write(f"{datetime.datetime.now():%H:%M:%S} {msg}\n")
-
-
 def main() -> None:
     if not FLAG_PATH.exists():
         return
     payload = json.load(sys.stdin)
     transcript_path = payload.get("transcript_path")
     if not transcript_path:
-        _log("sem transcript_path no payload")
         return
-    # o Stop pode disparar antes do flush da última mensagem no JSONL; retry breve
+    # Stop may fire before the last message is flushed to the JSONL; brief retry
     import time
 
     text = ""
@@ -98,11 +90,9 @@ def main() -> None:
             break
         time.sleep(0.5)
     if not text:
-        _log("texto vazio após retries, nada a falar")
         return
-    _log(f"falando {len(text)} chars: {text[:60]!r}")
     if len(text) > MAX_CHARS:
-        text = text[:MAX_CHARS] + " ... resposta longa, resto no terminal."
+        text = text[:MAX_CHARS] + " ... long reply, the rest is in the terminal."
     body = json.dumps({"text": text}).encode()
     req = urllib.request.Request(
         f"{DAEMON_URL}/say", data=body, headers={"Content-Type": "application/json"}
@@ -110,7 +100,7 @@ def main() -> None:
     try:
         urllib.request.urlopen(req, timeout=2)
     except (urllib.error.URLError, OSError):
-        pass  # daemon fora do ar: modo voz efetivamente desligado
+        pass  # daemon down: voice mode effectively off
 
 
 if __name__ == "__main__":

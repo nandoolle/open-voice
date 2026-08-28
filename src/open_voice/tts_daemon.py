@@ -1,7 +1,7 @@
-"""Daemon TTS: Kokoro warm servido via HTTP local, com fila e interrupção.
+"""TTS daemon: warm engine served over local HTTP, with a queue and interruption.
 
-POST /say {"text": ...} enfileira; POST /stop cancela a fala atual e limpa
-a fila. O modelo carrega uma vez no startup e fica residente.
+POST /say {"text": ...} enqueues; POST /stop cancels the current speech and
+drains the queue. The model loads once at startup and stays resident.
 """
 
 import argparse
@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from open_voice.audio import reset_portaudio
 
 DEFAULT_PORT = 8765
-DEFAULT_VOICE = "pf_dora"  # pt-br feminina; lang_code "p" = pt-br
+DEFAULT_VOICE = "pf_dora"  # pt-BR female; lang_code "p" = pt-BR
 DEFAULT_LANG = "p"
 
 
@@ -40,7 +40,7 @@ class ChatterboxEngine:
         import torch
         import perth
 
-        # resemble-perth vem sem o watermarker implícito; desnecessário aqui
+        # resemble-perth ships without the implicit watermarker; not needed here
         if getattr(perth, "PerthImplicitWatermarker", None) is None:
             perth.PerthImplicitWatermarker = perth.DummyWatermarker
         from chatterbox.mtl_tts import ChatterboxMultilingualTTS
@@ -114,18 +114,18 @@ def _speak_loop() -> None:
                     break
                 _play_resilient(audio)
         except sd.PortAudioError as exc:
-            # sem saída de áudio utilizável agora; descarta a fala, thread segue viva
-            print(f"[tts] fala descartada, áudio indisponível: {exc}", flush=True)
+            # no usable audio output right now; drop the utterance, keep the thread alive
+            print(f"[tts] speech dropped, audio unavailable: {exc}", flush=True)
         finally:
             _speaking.clear()
 
 
 def _play_resilient(audio: np.ndarray) -> None:
-    """Toca o áudio; se o dispositivo de saída mudou, reinicializa e re-tenta."""
+    """Play audio; if the output device changed, reinitialize and retry once."""
     for attempt in (1, 2):
         try:
             sd.play(audio, _engine.sample_rate)
-            # sd.wait() bloquearia sem enxergar o interrupt; poll barato
+            # sd.wait() would block without seeing the interrupt; cheap polling
             while sd.get_stream().active:
                 if _interrupt.wait(0.05):
                     sd.stop()

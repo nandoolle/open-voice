@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from open-voice!")
+"""Local voice loop (TTS/STT) for Claude Code via herdr."""

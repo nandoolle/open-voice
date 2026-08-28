@@ -1,7 +1,7 @@
 [project]
 name = "open-voice"
 version = "0.1.0"
-description = "Voice ping-pong (TTS/STT local) para o Claude Code via herdr"
+description = "Local voice loop (TTS/STT) for Claude Code via herdr"
 readme = "README.md"
 authors = [
     { name = "Fernando Ollé", email = "fernando.olle@icloud.com" }

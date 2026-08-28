@@ -1,9 +1,9 @@
-"""Loop STT hands-free: mic + VAD → whisper local → herdr agent prompt.
+"""Hands-free STT loop: mic + VAD -> local whisper -> herdr agent prompt.
 
-Ciclo: escuta o mic até detectar fala seguida de 2.5s de silêncio (silero VAD),
-transcreve com mlx-whisper (large-v3-turbo, pt), injeta no pane do Claude Code
-via `herdr agent prompt` e espera o turno terminar (herdr wait + TTS ocioso)
-antes de reabrir o mic.
+Cycle: listen to the mic until speech followed by silence (silero VAD),
+transcribe with mlx-whisper, inject into the Claude Code pane via
+`herdr agent prompt` and wait for the turn to finish (herdr wait + idle TTS)
+before reopening the mic.
 """
 
 import argparse
@@ -20,11 +20,12 @@ import sounddevice as sd
 from open_voice.audio import reset_portaudio
 
 VAD_SAMPLE_RATE = 16_000
-VAD_CHUNK = 512  # amostras por chamada do silero @16k
+VAD_CHUNK = 512  # samples per silero call @16k
 SILENCE_SECONDS = 2.5
 MIN_SPEECH_SECONDS = 0.6
-PREROLL_SECONDS = 0.5  # áudio antes do "start" do VAD, para não cortar sílabas iniciais
+PREROLL_SECONDS = 0.5  # audio kept before the VAD "start" so leading syllables survive
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
+WHISPER_LANGUAGE = "pt"
 TTS_DAEMON_URL = "http://127.0.0.1:8765"
 
 
@@ -39,18 +40,20 @@ def find_claude_pane() -> str:
     panes = json.loads(out)["result"]["panes"]
     claude = [p for p in panes if p.get("agent") == "claude"]
     if not claude:
-        sys.exit("Nenhum pane com Claude Code encontrado no herdr.")
+        sys.exit("No pane running Claude Code found in herdr.")
     focused = [p for p in claude if p.get("focused")]
     if focused:
         return focused[0]["pane_id"]
     if len(claude) == 1:
         return claude[0]["pane_id"]
     ids = ", ".join(p["pane_id"] for p in claude)
-    sys.exit(f"Vários Claudes ativos ({ids}) e nenhum focado — use --pane.")
+    sys.exit(f"Multiple Claude panes active ({ids}) and none focused — use --pane.")
 
 
 def record_utterance(vad_model) -> np.ndarray | None:
-    """Grava até fala + SILENCE_SECONDS de silêncio. None se nada foi falado."""
+    """Record until speech + SILENCE_SECONDS of silence. None if nothing was said."""
+    from collections import deque
+
     from silero_vad import VADIterator
 
     vad = VADIterator(vad_model, sampling_rate=VAD_SAMPLE_RATE)
@@ -58,8 +61,6 @@ def record_utterance(vad_model) -> np.ndarray | None:
 
     def callback(indata, frames, time_info, status):
         audio_q.put(indata[:, 0].copy())
-
-    from collections import deque
 
     chunks: list[np.ndarray] = []
     preroll: deque[np.ndarray] = deque(
@@ -83,7 +84,7 @@ def record_utterance(vad_model) -> np.ndarray | None:
                 event = vad(chunk)
                 if event and "start" in event:
                     if not speaking:
-                        log("🎤 gravando...")
+                        log("recording...")
                         chunks = [*preroll, chunk]
                         preroll.clear()
                     speaking = True
@@ -106,7 +107,7 @@ def transcribe(audio: np.ndarray) -> str:
     import mlx_whisper
 
     result = mlx_whisper.transcribe(
-        audio, path_or_hf_repo=WHISPER_MODEL, language="pt"
+        audio, path_or_hf_repo=WHISPER_MODEL, language=WHISPER_LANGUAGE
     )
     return result["text"].strip()
 
@@ -119,7 +120,7 @@ def send_to_claude(pane_id: str, text: str) -> bool:
     )
     if result.returncode != 0:
         err = (result.stderr or result.stdout).strip()
-        log(f"⚠️ herdr recusou o prompt para {pane_id}: {err[:300]}")
+        log(f"herdr rejected the prompt for {pane_id}: {err[:300]}")
         return False
     return True
 
@@ -131,20 +132,20 @@ def wait_tts_idle() -> None:
                 if not client.get(f"{TTS_DAEMON_URL}/busy").json()["busy"]:
                     return
             except httpx.HTTPError:
-                return  # daemon fora do ar: nada a esperar
+                return  # daemon down: nothing to wait for
             time.sleep(0.3)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="open-voice hands-free listener")
-    parser.add_argument("--pane", help="pane alvo (ex.: w1:pD); default: autodetect")
+    parser.add_argument("--pane", help="target pane (e.g. w1:pD); default: autodetect")
     args = parser.parse_args()
 
     from silero_vad import load_silero_vad
 
-    log("carregando VAD e whisper...")
+    log("loading VAD and whisper...")
     vad_model = load_silero_vad()
-    transcribe(np.zeros(VAD_SAMPLE_RATE, dtype=np.float32))  # warm-up do whisper
+    transcribe(np.zeros(VAD_SAMPLE_RATE, dtype=np.float32))  # whisper warm-up
 
     pane_id = args.pane or find_claude_pane()
 
@@ -156,15 +157,15 @@ def main() -> None:
     state.write_text(json.dumps({"pid": os.getpid(), "pane": pane_id}))
     atexit.register(lambda: state.unlink(missing_ok=True))
 
-    log(f"pronto — alvo: {pane_id}. Fale; {SILENCE_SECONDS}s de silêncio envia.")
+    log(f"ready — target: {pane_id}. Speak; {SILENCE_SECONDS}s of silence sends.")
 
     try:
         while True:
             try:
                 audio = record_utterance(vad_model)
             except sd.PortAudioError:
-                # dispositivo de entrada mudou (fone conectou/desconectou)
-                log("áudio indisponível — reinicializando PortAudio...")
+                # input device changed (headset connected/disconnected)
+                log("audio unavailable — reinitializing PortAudio...")
                 reset_portaudio()
                 time.sleep(2)
                 continue
@@ -173,17 +174,14 @@ def main() -> None:
             text = transcribe(audio)
             if not text:
                 continue
-            log(f"→ {text}")
+            log(f"-> {text}")
             if not send_to_claude(pane_id, text):
-                # pane pode ter mudado (sessão nova, pane fechado); re-resolve e re-tenta
+                # pane may have changed (new session, closed pane); re-resolve and retry
                 pane_id = args.pane or find_claude_pane()
-                log(f"re-resolvido alvo: {pane_id}")
                 send_to_claude(pane_id, text)
             wait_tts_idle()
-            log("turno concluído — escutando de novo.")
     except KeyboardInterrupt:
         print()
-        log("encerrado.")
         raise SystemExit(0)
 
 
