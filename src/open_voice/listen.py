@@ -232,12 +232,32 @@ def _act_pause_execution(pane_id: str) -> None:
 
 
 def _act_stop_media(pane_id: str) -> None:
-    # best effort: pause the media apps that expose an AppleScript pause
+    """Press the system Play/Pause media key — macOS routes it to whatever is
+    Now Playing (browser video included). Falls back to AppleScript pause."""
+    try:
+        _press_play_pause()
+        return
+    except Exception:
+        pass
     for app in ("Spotify", "Music"):
         subprocess.run(
             ["osascript", "-e", f'tell application "{app}" to pause'],
             capture_output=True,
         )
+
+
+def _press_play_pause() -> None:
+    import Quartz
+    from AppKit import NSEvent
+
+    NX_KEYTYPE_PLAY = 16
+    for down in (True, False):
+        flags = 0xA00 if down else 0xB00
+        data1 = (NX_KEYTYPE_PLAY << 16) | ((0x0A if down else 0x0B) << 8)
+        event = NSEvent.otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
+            14, (0, 0), flags, 0, 0, None, 8, data1, -1
+        )
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event.CGEvent())
 
 
 def _act_stop_speaking(pane_id: str) -> None:
