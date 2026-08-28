@@ -268,14 +268,14 @@ FAST_PATTERNS = [
 
 ROUTE_PROMPT = """You gate a hands-free microphone attached to a coding agent session. The mic hears everything, including speech not meant for the agent. Given a transcribed utterance (any language), reply with exactly one word from this list and nothing else:
 send - addressed to the coding agent: a request, question, instruction, or dictated message
-discard - ambient speech not addressed to the agent: conversation with other people, phone calls, filler, noise
+discard - clearly not addressed to the agent: conversation with other people in the room, phone calls, media audio
 cancel - user wants the pending message NOT to be sent ("não mande", "don't send", "cancela")
 send_message - user wants to submit the message drafted in the input box
 pause_execution - user wants to interrupt or pause the running coding agent
 stop_media - user wants to stop or pause music or other media playing
 stop_speaking - user wants the text-to-speech voice to stop talking
 stop_dictation - user wants to turn off the microphone or dictation
-When unsure between send and discard, reply discard.
+The user is usually talking to the agent: comments, feedback, and reactions about what is on screen count as send. Reply discard only when the utterance is clearly directed at someone else. When unsure, reply send.
 
 Utterance: {text}"""
 
@@ -283,7 +283,9 @@ ROUTE_LABELS = {"send", "discard", "cancel", *INTENT_ACTIONS}
 
 
 def route(text: str) -> str:
-    """Classify an utterance; any LLM failure or unknown label becomes discard."""
+    """Classify an utterance; any LLM failure or unknown label becomes send
+    (send-biased on purpose: the cancel window catches mistakes, a discarded
+    message is silently lost)."""
     low = text.lower()
     fast = next((i for rx, i in FAST_PATTERNS if rx.search(low)), None)
     if fast:
@@ -296,9 +298,9 @@ def route(text: str) -> str:
             timeout=30,
         )
     except (subprocess.TimeoutExpired, OSError):
-        return "discard"
+        return "send"
     label = result.stdout.strip().lower()
-    return label if label in ROUTE_LABELS else "discard"
+    return label if label in ROUTE_LABELS else "send"
 
 
 def send_to_claude(pane_id: str, text: str) -> bool:
