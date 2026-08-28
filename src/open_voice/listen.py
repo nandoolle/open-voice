@@ -99,12 +99,17 @@ def transcribe(audio: np.ndarray) -> str:
     return result["text"].strip()
 
 
-def send_to_claude(pane_id: str, text: str) -> None:
-    subprocess.run(
+def send_to_claude(pane_id: str, text: str) -> bool:
+    result = subprocess.run(
         ["herdr", "agent", "prompt", pane_id, text, "--wait", "--timeout", "600000"],
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout).strip()
+        log(f"⚠️ herdr recusou o prompt para {pane_id}: {err[:300]}")
+        return False
+    return True
 
 
 def wait_tts_idle() -> None:
@@ -132,17 +137,26 @@ def main() -> None:
     pane_id = args.pane or find_claude_pane()
     log(f"pronto — alvo: {pane_id}. Fale; {SILENCE_SECONDS}s de silêncio envia.")
 
-    while True:
-        audio = record_utterance(vad_model)
-        if audio is None:
-            continue
-        text = transcribe(audio)
-        if not text:
-            continue
-        log(f"→ {text}")
-        send_to_claude(pane_id, text)
-        wait_tts_idle()
-        log("turno concluído — escutando de novo.")
+    try:
+        while True:
+            audio = record_utterance(vad_model)
+            if audio is None:
+                continue
+            text = transcribe(audio)
+            if not text:
+                continue
+            log(f"→ {text}")
+            if not send_to_claude(pane_id, text):
+                # pane pode ter mudado (sessão nova, pane fechado); re-resolve e re-tenta
+                pane_id = args.pane or find_claude_pane()
+                log(f"re-resolvido alvo: {pane_id}")
+                send_to_claude(pane_id, text)
+            wait_tts_idle()
+            log("turno concluído — escutando de novo.")
+    except KeyboardInterrupt:
+        print()
+        log("encerrado.")
+        raise SystemExit(0)
 
 
 if __name__ == "__main__":
