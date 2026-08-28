@@ -13,6 +13,8 @@ import urllib.request
 from pathlib import Path
 
 DAEMON_URL = "http://127.0.0.1:8765"
+# U+2060 (word joiner): invisível; presença numa mensagem = "leia esta em voz alta"
+SPEAK_MARKER = "⁠"
 FLAG_PATH = Path.home() / ".claude" / "voice-enabled"
 MAX_CHARS = 1500
 
@@ -53,7 +55,11 @@ def last_assistant_text(transcript_path: str) -> str:
             ).strip()
             if chunk:
                 texts.append(chunk)
-    return "\n".join(texts)
+    marked = [t for t in texts if SPEAK_MARKER in t]
+    if marked:
+        return "\n".join(t.replace(SPEAK_MARKER, "") for t in marked)
+    # sem marcador: só a resposta final, não os textos entre tool calls
+    return texts[-1] if texts else ""
 
 
 def strip_markdown(text: str) -> str:
