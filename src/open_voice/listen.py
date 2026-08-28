@@ -112,6 +112,41 @@ def transcribe(audio: np.ndarray) -> str:
     return result["text"].strip()
 
 
+def composer_draft(pane_id: str) -> str:
+    """Text currently typed in the Claude Code composer ("" if empty or unreadable).
+
+    The detection snapshot renders the composer as a `❯` line between two
+    horizontal-rule lines; anything after the `❯` (including wrapped lines
+    up to the bottom rule) is user draft.
+    """
+    result = subprocess.run(
+        ["herdr", "pane", "read", pane_id, "--source", "detection", "--lines", "20"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    lines = result.stdout.splitlines()
+    starts = [i for i, line in enumerate(lines) if line.lstrip().startswith("❯")]
+    if not starts:
+        return ""
+    start = starts[-1]
+    draft = [lines[start].lstrip().removeprefix("❯")]
+    for line in lines[start + 1 :]:
+        if line.strip().startswith("─"):
+            break
+        draft.append(line)
+    return "\n".join(draft).strip()
+
+
+def append_to_composer(pane_id: str, text: str) -> None:
+    subprocess.run(
+        ["herdr", "pane", "send-text", pane_id, f" {text}"],
+        capture_output=True,
+        text=True,
+    )
+
+
 def send_to_claude(pane_id: str, text: str) -> bool:
     result = subprocess.run(
         ["herdr", "agent", "prompt", pane_id, text, "--wait", "--timeout", "600000"],
@@ -175,6 +210,11 @@ def main() -> None:
             if not text:
                 continue
             log(f"-> {text}")
+            if composer_draft(pane_id):
+                # user is mid-typing: append the transcription without sending
+                append_to_composer(pane_id, text)
+                log("draft in composer — appended, not sent")
+                continue
             if not send_to_claude(pane_id, text):
                 # pane may have changed (new session, closed pane); re-resolve and retry
                 pane_id = args.pane or find_claude_pane()
