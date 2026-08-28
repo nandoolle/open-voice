@@ -73,16 +73,34 @@ def strip_markdown(text: str) -> str:
     return re.sub(r"\n{2,}", "\n", text).strip()
 
 
+def _log(msg: str) -> None:
+    import datetime
+
+    with open(Path.home() / ".claude" / "open-voice-hook.log", "a") as f:
+        f.write(f"{datetime.datetime.now():%H:%M:%S} {msg}\n")
+
+
 def main() -> None:
     if not FLAG_PATH.exists():
         return
     payload = json.load(sys.stdin)
     transcript_path = payload.get("transcript_path")
     if not transcript_path:
+        _log("sem transcript_path no payload")
         return
-    text = strip_markdown(last_assistant_text(transcript_path))
+    # o Stop pode disparar antes do flush da última mensagem no JSONL; retry breve
+    import time
+
+    text = ""
+    for attempt in range(8):
+        text = strip_markdown(last_assistant_text(transcript_path))
+        if text:
+            break
+        time.sleep(0.5)
     if not text:
+        _log("texto vazio após retries, nada a falar")
         return
+    _log(f"falando {len(text)} chars: {text[:60]!r}")
     if len(text) > MAX_CHARS:
         text = text[:MAX_CHARS] + " ... resposta longa, resto no terminal."
     body = json.dumps({"text": text}).encode()
