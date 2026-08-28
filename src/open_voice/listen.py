@@ -194,7 +194,12 @@ def composer_draft(pane_id: str) -> str:
         if line.strip().startswith("─"):
             break
         draft.append(line)
-    return "\n".join(draft).strip()
+    text = "\n".join(draft).strip()
+    # Claude Code renders placeholder hints inside the composer; they are not
+    # user drafts (e.g. "Press up to edit queued messages", 'Try "fix lint..."')
+    if re.match(r"^(Press up to edit|Try \"|\? for shortcuts)", text):
+        return ""
+    return text
 
 
 def append_to_composer(pane_id: str, text: str) -> None:
