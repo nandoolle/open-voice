@@ -266,20 +266,44 @@ FAST_PATTERNS = [
     (re.compile(r"\bn[ãa]o\s+(mand\w+|envi\w+)\b|\bcancela\w*\b|\bdon'?t\s+send\b"), "cancel"),
 ]
 
-ROUTE_PROMPT = """You detect voice commands in utterances dictated to a coding agent. Given a transcribed utterance (any language), reply with exactly one word from this list and nothing else:
-send - a message for the coding agent (the default for anything below)
-cancel - ONLY when the utterance explicitly asks not to send the pending message ("não mande", "don't send", "cancela isso")
-send_message - user wants to submit the message drafted in the input box
-pause_execution - user wants to interrupt or pause the running coding agent
-stop_media - user wants to stop or pause music or other media playing
-stop_speaking - user wants the text-to-speech voice to stop talking
-stop_dictation - user wants to turn off the microphone or dictation
-Never guess a command from vague wording; when in any doubt, reply send.
+ROUTE_PROMPT = """Classify one voice utterance (any language) with exactly one label:
+send = a message for the coding agent (questions, requests, feedback, anything conversational)
+cancel = explicitly asks NOT to send the pending message
+send_message = explicitly asks to submit/send the drafted message
+pause_execution = explicitly asks to pause/interrupt the agent's execution
+stop_media = explicitly asks to stop music/media
+stop_speaking = explicitly asks the voice to stop talking
+stop_dictation = explicitly asks to turn off the microphone/dictation
 
-Utterance: {text}"""
+Examples:
+"oi tudo bem?" -> send
+"muito bem." -> send
+"roda os testes de novo" -> send
+"não mande isso" -> cancel
+"pode enviar a mensagem" -> send_message
+"pausa a execução" -> pause_execution
+"para a música" -> stop_media
+"fica quieto" -> stop_speaking
+"desliga o microfone" -> stop_dictation
+"manda ver" -> send
+
+Commands require explicit wording; anything vague or conversational is send.
+"{text}" ->"""
 
 ROUTE_LABELS = {"send", "cancel", *INTENT_ACTIONS}
 COMMAND_MAX_WORDS = 8
+# small local model: ~100ms per classification, no network, no credentials
+ROUTER_MODEL = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+_router_model = None
+
+
+def _router():
+    global _router_model
+    if _router_model is None:
+        from mlx_lm import load
+
+        _router_model = load(ROUTER_MODEL)
+    return _router_model
 
 
 def route(text: str) -> str:
@@ -293,15 +317,16 @@ def route(text: str) -> str:
     if len(text.split()) > COMMAND_MAX_WORDS:
         return "send"
     try:
-        result = subprocess.run(
-            ["claude", "-p", "--model", "haiku", ROUTE_PROMPT.format(text=text)],
-            capture_output=True,
-            text=True,
-            timeout=30,
+        from mlx_lm import generate
+
+        model, tokenizer = _router()
+        prompt = tokenizer.apply_chat_template(
+            [{"role": "user", "content": ROUTE_PROMPT.format(text=text)}],
+            add_generation_prompt=True,
         )
-    except (subprocess.TimeoutExpired, OSError):
+        label = generate(model, tokenizer, prompt=prompt, max_tokens=8).strip().lower()
+    except Exception:
         return "send"
-    label = result.stdout.strip().lower()
     return label if label in ROUTE_LABELS else "send"
 
 
@@ -364,9 +389,10 @@ def main() -> None:
 
     from silero_vad import load_silero_vad
 
-    log("loading VAD and whisper...")
+    log("loading VAD, whisper and router...")
     vad_model = load_silero_vad()
     transcribe(np.zeros(VAD_SAMPLE_RATE, dtype=np.float32))  # whisper warm-up
+    _router()  # router model warm-up
 
     pane_id = args.pane or find_claude_pane()
 

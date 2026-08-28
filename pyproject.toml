@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "kokoro>=0.9.4",
+    "mlx-lm>=0.31.3",
     "mlx-whisper>=0.4.3",
     "silero-vad>=6.2.1",
     "sounddevice>=0.5.6",
