@@ -21,6 +21,7 @@ VAD_SAMPLE_RATE = 16_000
 VAD_CHUNK = 512  # amostras por chamada do silero @16k
 SILENCE_SECONDS = 2.5
 MIN_SPEECH_SECONDS = 0.6
+PREROLL_SECONDS = 0.5  # áudio antes do "start" do VAD, para não cortar sílabas iniciais
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 TTS_DAEMON_URL = "http://127.0.0.1:8765"
 
@@ -56,7 +57,12 @@ def record_utterance(vad_model) -> np.ndarray | None:
     def callback(indata, frames, time_info, status):
         audio_q.put(indata[:, 0].copy())
 
+    from collections import deque
+
     chunks: list[np.ndarray] = []
+    preroll: deque[np.ndarray] = deque(
+        maxlen=int(PREROLL_SECONDS * VAD_SAMPLE_RATE / VAD_CHUNK)
+    )
     speaking = False
     silence_start: float | None = None
     buffer = np.empty(0, dtype=np.float32)
@@ -70,10 +76,14 @@ def record_utterance(vad_model) -> np.ndarray | None:
                 chunk, buffer = buffer[:VAD_CHUNK], buffer[VAD_CHUNK:]
                 if speaking:
                     chunks.append(chunk)
+                else:
+                    preroll.append(chunk)
                 event = vad(chunk)
                 if event and "start" in event:
                     if not speaking:
                         log("🎤 gravando...")
+                        chunks = [*preroll, chunk]
+                        preroll.clear()
                     speaking = True
                     silence_start = None
                 elif event and "end" in event and speaking:
