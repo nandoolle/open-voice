@@ -140,6 +140,11 @@ def record_utterance(
                 event = vad(chunk)
                 if event and "start" in event:
                     if not speaking:
+                        # re-check at the exact start: the 0.5s busy poll leaves a
+                        # window where TTS speech would open the mic and beep
+                        if _tts_busy(tts_client):
+                            vad.reset_states()
+                            continue
                         log("recording...")
                         _beep("Blow")
                         chunks = [*preroll, chunk]
