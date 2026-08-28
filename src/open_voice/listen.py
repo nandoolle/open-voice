@@ -135,6 +135,15 @@ def main() -> None:
     transcribe(np.zeros(VAD_SAMPLE_RATE, dtype=np.float32))  # warm-up do whisper
 
     pane_id = args.pane or find_claude_pane()
+
+    import atexit
+    import os
+    from pathlib import Path
+
+    state = Path.home() / ".claude" / "open-voice-listener.json"
+    state.write_text(json.dumps({"pid": os.getpid(), "pane": pane_id}))
+    atexit.register(lambda: state.unlink(missing_ok=True))
+
     log(f"pronto — alvo: {pane_id}. Fale; {SILENCE_SECONDS}s de silêncio envia.")
 
     try:
