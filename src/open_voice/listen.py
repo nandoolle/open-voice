@@ -5,7 +5,7 @@ transcribe with mlx-whisper, route the utterance (local command, prompt for
 the agent, or ambient speech to discard) and inject prompts into the Claude
 Code pane via `herdr agent prompt`. Earcons mark every transition:
 
-    Tink   mic started capturing        Ping   prompt accepted, cancel window open
+    Blow   mic started capturing        Ping   prompt accepted, cancel window open
     Pop    utterance captured           Glass  message sent / Enter
     Basso  cancelled / dictation off
 """
@@ -141,7 +141,7 @@ def record_utterance(
                 if event and "start" in event:
                     if not speaking:
                         log("recording...")
-                        _beep("Tink")
+                        _beep("Blow")
                         chunks = [*preroll, chunk]
                         preroll.clear()
                     speaking = True
