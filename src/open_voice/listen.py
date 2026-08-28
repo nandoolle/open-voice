@@ -5,8 +5,8 @@ transcribe with mlx-whisper, route the utterance (local command, prompt for
 the agent, or ambient speech to discard) and inject prompts into the Claude
 Code pane via `herdr agent prompt`. Earcons mark every transition:
 
-    Blow   mic started capturing        Ping   prompt accepted, cancel window open
-    Pop    utterance captured           Glass  message sent / Enter
+    Blow   mic started capturing        Purr   prompt accepted, cancel window open
+    Frog   utterance captured           Glass  message sent / Enter
     Basso  cancelled / dictation off
 """
 
@@ -364,7 +364,7 @@ def collect_prompt(vad_model, pane_id: str, text: str) -> str | None:
     for CANCEL_WINDOW_SECONDS — a cancel utterance drops it, another prompt
     utterance extends it, silence confirms it."""
     while True:
-        _beep("Ping")
+        _beep("Purr")
         extra = record_utterance(vad_model, first_speech_timeout=CANCEL_WINDOW_SECONDS)
         if extra is None:
             return text
@@ -450,7 +450,7 @@ def main() -> None:
                 continue
             if audio is None:
                 continue
-            _beep("Pop")
+            _beep("Frog")
             text = transcribe(audio)
             if not text:
                 continue
