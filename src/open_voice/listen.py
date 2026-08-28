@@ -154,6 +154,35 @@ def append_to_composer(pane_id: str, text: str) -> None:
     )
 
 
+def handle_command(pane_id: str, text: str) -> bool:
+    """Local voice commands, resolved without touching the Claude session."""
+    low = text.lower()
+    if re.search(r"\b(envi\w+|manda\w*)\b.*\bmensagem\b", low):
+        subprocess.run(
+            ["herdr", "pane", "send-keys", pane_id, "enter"], capture_output=True
+        )
+        log("command: send message")
+        return True
+    if re.search(r"\b(pare?|parar)\b.*\bfalar\b|\bsil[êe]ncio\b", low):
+        try:
+            httpx.post(f"{TTS_DAEMON_URL}/stop", timeout=2)
+        except httpx.HTTPError:
+            pass
+        log("command: stop speaking")
+        return True
+    if re.search(r"\b(pare?|parar|deslig\w+)\b.*\b(ditado|microfone|escuta)\b", low):
+        log("command: stop dictation — exiting")
+        try:
+            httpx.post(f"{TTS_DAEMON_URL}/stop", timeout=2)
+        except httpx.HTTPError:
+            pass
+        from open_voice.flag import disable
+
+        disable()
+        raise SystemExit(0)
+    return False
+
+
 def send_to_claude(pane_id: str, text: str) -> bool:
     result = subprocess.run(
         ["herdr", "agent", "prompt", pane_id, text, "--wait", "--timeout", "600000"],
@@ -230,10 +259,13 @@ def main() -> None:
                 continue
             text = stripped
             log(f"-> {text}")
-            if composer_draft(pane_id):
+            if handle_command(pane_id, text):
+                continue
+            draft = composer_draft(pane_id)
+            if draft:
                 # user is mid-typing: append the transcription without sending
                 append_to_composer(pane_id, text)
-                log("draft in composer — appended, not sent")
+                log(f"draft in composer — appended, not sent (draft: {draft[:60]!r})")
                 continue
             if not send_to_claude(pane_id, text):
                 # pane may have changed (new session, closed pane); re-resolve and retry
