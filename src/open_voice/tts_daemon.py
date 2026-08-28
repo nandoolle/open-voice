@@ -14,6 +14,8 @@ import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from open_voice.audio import reset_portaudio
+
 DEFAULT_PORT = 8765
 DEFAULT_VOICE = "pf_dora"  # pt-br feminina; lang_code "p" = pt-br
 DEFAULT_LANG = "p"
@@ -110,14 +112,29 @@ def _speak_loop() -> None:
             for audio in _engine.synth_chunks(text):
                 if _interrupt.is_set():
                     break
-                sd.play(audio, _engine.sample_rate)
-                # sd.wait() bloquearia sem enxergar o interrupt; poll barato
-                while sd.get_stream().active:
-                    if _interrupt.wait(0.05):
-                        sd.stop()
-                        break
+                _play_resilient(audio)
+        except sd.PortAudioError as exc:
+            # sem saída de áudio utilizável agora; descarta a fala, thread segue viva
+            print(f"[tts] fala descartada, áudio indisponível: {exc}", flush=True)
         finally:
             _speaking.clear()
+
+
+def _play_resilient(audio: np.ndarray) -> None:
+    """Toca o áudio; se o dispositivo de saída mudou, reinicializa e re-tenta."""
+    for attempt in (1, 2):
+        try:
+            sd.play(audio, _engine.sample_rate)
+            # sd.wait() bloquearia sem enxergar o interrupt; poll barato
+            while sd.get_stream().active:
+                if _interrupt.wait(0.05):
+                    sd.stop()
+                    break
+            return
+        except sd.PortAudioError:
+            if attempt == 2:
+                raise
+            reset_portaudio()
 
 
 def main() -> None:

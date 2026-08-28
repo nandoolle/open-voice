@@ -17,6 +17,8 @@ import httpx
 import numpy as np
 import sounddevice as sd
 
+from open_voice.audio import reset_portaudio
+
 VAD_SAMPLE_RATE = 16_000
 VAD_CHUNK = 512  # amostras por chamada do silero @16k
 SILENCE_SECONDS = 2.5
@@ -158,7 +160,14 @@ def main() -> None:
 
     try:
         while True:
-            audio = record_utterance(vad_model)
+            try:
+                audio = record_utterance(vad_model)
+            except sd.PortAudioError:
+                # dispositivo de entrada mudou (fone conectou/desconectou)
+                log("áudio indisponível — reinicializando PortAudio...")
+                reset_portaudio()
+                time.sleep(2)
+                continue
             if audio is None:
                 continue
             text = transcribe(audio)
