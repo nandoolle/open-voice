@@ -60,7 +60,7 @@ scripts/voice-off.sh   # flag off, stop speech, kill listener (daemon stays warm
 
 Wire them to `/voice-on` and `/voice-off` slash commands in `~/.claude/commands/` for in-session toggling.
 
-Speak; 2.5 s of silence sends the utterance to Claude. Replies are spoken automatically. To make Claude read a specific mid-turn message aloud, include the invisible U+2060 marker in it — otherwise only the final reply of the turn is spoken.
+Speak; 2.5 s of silence sends the utterance to Claude. If you have a typed draft in the composer, the transcription is appended to it instead of being auto-sent. The final reply of each turn is spoken automatically; mid-turn text is spoken live (while tools run) when Claude prefixes it with 🔊 — the transcript follower tails the session JSONL and speaks marked blocks as they arrive. Instruct Claude in your CLAUDE.md to prefix noteworthy mid-turn updates with 🔊.
 
 ## Configuration
 

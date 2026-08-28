@@ -192,6 +192,12 @@ def main() -> None:
     state.write_text(json.dumps({"pid": os.getpid(), "pane": pane_id}))
     atexit.register(lambda: state.unlink(missing_ok=True))
 
+    import threading
+
+    from open_voice.transcript_follower import follow
+
+    threading.Thread(target=follow, args=(pane_id,), daemon=True).start()
+
     log(f"ready — target: {pane_id}. Speak; {SILENCE_SECONDS}s of silence sends.")
 
     try:

@@ -13,8 +13,9 @@ import urllib.request
 from pathlib import Path
 
 DAEMON_URL = "http://127.0.0.1:8765"
-# U+2060 (word joiner): invisible; its presence in a message means "read this one aloud"
-SPEAK_MARKER = "⁠"
+# marks a mid-turn block as "speak as it arrives"; the transcript follower reads
+# these in real time, so this hook skips them to avoid speaking twice
+SPEAK_MARKER = "🔊"
 FLAG_PATH = Path.home() / ".claude" / "voice-enabled"
 MAX_CHARS = 1500
 
@@ -55,10 +56,9 @@ def last_assistant_text(transcript_path: str) -> str:
             ).strip()
             if chunk:
                 texts.append(chunk)
-    marked = [t for t in texts if SPEAK_MARKER in t]
-    if marked:
-        return "\n".join(t.replace(SPEAK_MARKER, "") for t in marked)
-    # no marker: only the final reply, not the text between tool calls
+    # marked blocks were already spoken live by the follower; speak the final
+    # unmarked reply only
+    texts = [t for t in texts if SPEAK_MARKER not in t]
     return texts[-1] if texts else ""
 
 
