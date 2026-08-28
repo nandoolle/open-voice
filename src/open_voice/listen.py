@@ -9,6 +9,7 @@ before reopening the mic.
 import argparse
 import json
 import queue
+import re
 import subprocess
 import sys
 import time
@@ -27,6 +28,12 @@ PREROLL_SECONDS = 0.5  # audio kept before the VAD "start" so leading syllables 
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 WHISPER_LANGUAGE = "pt"
 TTS_DAEMON_URL = "http://127.0.0.1:8765"
+# wake word "OK Agent", tolerant to how whisper renders it across accents:
+# "ok agent", "ok agente", "ok a gente", "okay, agente", etc.
+WAKE_WORD_RE = re.compile(
+    r"^[\s,.!?…-]*ok(?:ay)?[\s,.!?…-]*(?:a\s*gente|agente?)\b[\s,.!?…:-]*",
+    re.IGNORECASE,
+)
 
 
 def log(msg: str) -> None:
@@ -215,6 +222,13 @@ def main() -> None:
             text = transcribe(audio)
             if not text:
                 continue
+            stripped = WAKE_WORD_RE.sub("", text, count=1).strip()
+            if stripped == text.strip():
+                log(f"no wake word — ignored: {text[:60]!r}")
+                continue
+            if not stripped:
+                continue
+            text = stripped
             log(f"-> {text}")
             if composer_draft(pane_id):
                 # user is mid-typing: append the transcription without sending
