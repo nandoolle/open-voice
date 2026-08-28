@@ -12,19 +12,53 @@ import numpy as np
 import sounddevice as sd
 import uvicorn
 from fastapi import FastAPI
-from kokoro import KPipeline
 from pydantic import BaseModel
 
-SAMPLE_RATE = 24_000
 DEFAULT_PORT = 8765
 DEFAULT_VOICE = "pf_dora"  # pt-br feminina; lang_code "p" = pt-br
 DEFAULT_LANG = "p"
+
+
+class KokoroEngine:
+    sample_rate = 24_000
+
+    def __init__(self, lang: str, voice: str):
+        from kokoro import KPipeline
+
+        self._pipe = KPipeline(lang_code=lang)
+        self._voice = voice
+
+    def synth_chunks(self, text: str):
+        for _, _, audio in self._pipe(text, voice=self._voice):
+            yield np.asarray(audio)
+
+
+class ChatterboxEngine:
+    def __init__(self, lang: str, voice: str):
+        import torch
+        import perth
+
+        # resemble-perth vem sem o watermarker implícito; desnecessário aqui
+        if getattr(perth, "PerthImplicitWatermarker", None) is None:
+            perth.PerthImplicitWatermarker = perth.DummyWatermarker
+        from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        self._model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+        self._lang = "pt" if lang == "p" else lang
+        self.sample_rate = self._model.sr
+
+    def synth_chunks(self, text: str):
+        yield self._model.generate(text, language_id=self._lang).squeeze(0).cpu().numpy()
+
+
+ENGINES = {"kokoro": KokoroEngine, "chatterbox": ChatterboxEngine}
 
 app = FastAPI()
 _say_queue: queue.Queue[str] = queue.Queue()
 _interrupt = threading.Event()
 _speaking = threading.Event()
-_pipeline: KPipeline | None = None
+_engine = None
 _voice = DEFAULT_VOICE
 
 
@@ -67,16 +101,16 @@ def _drain_queue() -> None:
 
 
 def _speak_loop() -> None:
-    assert _pipeline is not None
+    assert _engine is not None
     while True:
         text = _say_queue.get()
         _interrupt.clear()
         _speaking.set()
         try:
-            for _, _, audio in _pipeline(text, voice=_voice):
+            for audio in _engine.synth_chunks(text):
                 if _interrupt.is_set():
                     break
-                sd.play(np.asarray(audio), SAMPLE_RATE)
+                sd.play(audio, _engine.sample_rate)
                 # sd.wait() bloquearia sem enxergar o interrupt; poll barato
                 while sd.get_stream().active:
                     if _interrupt.wait(0.05):
@@ -87,15 +121,16 @@ def _speak_loop() -> None:
 
 
 def main() -> None:
-    global _pipeline, _voice
-    parser = argparse.ArgumentParser(description="open-voice TTS daemon (Kokoro)")
+    global _engine, _voice
+    parser = argparse.ArgumentParser(description="open-voice TTS daemon")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--voice", default=DEFAULT_VOICE)
     parser.add_argument("--lang", default=DEFAULT_LANG)
+    parser.add_argument("--engine", choices=ENGINES, default="kokoro")
     args = parser.parse_args()
 
     _voice = args.voice
-    _pipeline = KPipeline(lang_code=args.lang)
+    _engine = ENGINES[args.engine](args.lang, args.voice)
     threading.Thread(target=_speak_loop, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 

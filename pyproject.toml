@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "chatterbox-tts>=0.1.7",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "kokoro>=0.9.4",
