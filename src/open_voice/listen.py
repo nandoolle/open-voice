@@ -36,6 +36,7 @@ SILENCE_SECONDS = 2.5
 MIN_SPEECH_SECONDS = 0.6
 PREROLL_SECONDS = 1.0  # audio kept before the VAD "start" so leading syllables survive
 CANCEL_WINDOW_SECONDS = 3.0
+STALL_SECONDS = 5.0  # no audio callbacks for this long = input stream is dead
 # tunables live in ~/.config/open-voice/config.json (open-voice-config to change)
 VAD_THRESHOLD = _CFG["vad_threshold"]  # silero speech probability; higher rejects faint audio
 RMS_GATE_RATIO = _CFG["rms_gate_ratio"]  # onset must be this many times louder than the noise floor
@@ -118,6 +119,7 @@ def record_utterance(
     silence_start: float | None = None
     buffer = np.empty(0, dtype=np.float32)
 
+    last_data = time.monotonic()
     with sd.InputStream(
         samplerate=VAD_SAMPLE_RATE, channels=1, dtype="float32", callback=callback
     ):
@@ -130,7 +132,14 @@ def record_utterance(
                 tts_client.close()
                 return None
             if data is None:
+                # watchdog: on macOS, losing the input device (e.g. AirPods
+                # disconnecting) kills the callbacks without raising — the
+                # stream goes silently orphaned
+                if time.monotonic() - last_data > STALL_SECONDS:
+                    tts_client.close()
+                    raise sd.PortAudioError("input stream stalled — device lost?")
                 continue
+            last_data = time.monotonic()
             buffer = np.concatenate([buffer, data])
             while len(buffer) >= VAD_CHUNK:
                 chunk, buffer = buffer[:VAD_CHUNK], buffer[VAD_CHUNK:]
@@ -497,7 +506,15 @@ def main() -> None:
                 run_tool(intent, ctx, text)
                 continue
             log(f"-> {text}")
-            final = collect_prompt(vad_model, ctx, pane_id, text)
+            try:
+                final = collect_prompt(vad_model, ctx, pane_id, text)
+            except sd.PortAudioError:
+                # stream died during the cancel window: recover and send what
+                # was already accepted instead of dropping it
+                log("audio unavailable — reinitializing PortAudio...")
+                reset_portaudio()
+                time.sleep(2)
+                final = text
             if final is None:
                 continue
             draft = composer_draft(pane_id)
