@@ -32,6 +32,7 @@ open-voice-prompt-hook = "open_voice.prompt_hook:main"
 open-voice-setup = "open_voice.setup:main"
 open-voice-config = "open_voice.config:cli"
 open-voice-route = "open_voice.listen:route_cli"
+open-voice-uninstall = "open_voice.uninstall:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
