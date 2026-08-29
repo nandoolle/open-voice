@@ -6,12 +6,12 @@ give audible progress before the final reply.
 """
 
 import json
-import subprocess
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+from open_voice.mux import get_mux
 from open_voice.stop_hook import DAEMON_URL, SPEAK_MARKER, strip_markdown
 
 POLL_SECONDS = 0.3
@@ -19,18 +19,7 @@ RESOLVE_SECONDS = 5.0
 
 
 def _transcript_path(pane_id: str) -> Path | None:
-    result = subprocess.run(
-        ["herdr", "agent", "get", pane_id], capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        return None
-    agent = json.loads(result.stdout)["result"]["agent"]
-    session = agent.get("agent_session") or {}
-    if session.get("kind") != "id" or not agent.get("cwd"):
-        return None
-    slug = agent["cwd"].replace("/", "-").replace(".", "-")
-    path = Path.home() / ".claude" / "projects" / slug / f"{session['value']}.jsonl"
-    return path if path.exists() else None
+    return get_mux().transcript_path(pane_id)
 
 
 def _say(text: str) -> None:

@@ -3,7 +3,7 @@
 Cycle: listen to the mic until speech followed by silence (silero VAD),
 transcribe with mlx-whisper, route the utterance (local command, prompt for
 the agent, or ambient speech to discard) and inject prompts into the Claude
-Code pane via `herdr agent prompt`. Earcons mark every transition:
+Code pane via the configured multiplexer backend. Earcons mark every transition:
 
     Blow   mic started capturing        Purr   prompt accepted, cancel window open
     Frog   utterance captured           Glass  message sent / Enter
@@ -23,6 +23,10 @@ import numpy as np
 import sounddevice as sd
 
 from open_voice.audio import reset_portaudio
+from open_voice.config import router_model_repo, whisper_model_repo
+from open_voice.mux import get_mux
+
+MUX = get_mux()
 
 VAD_SAMPLE_RATE = 16_000
 VAD_CHUNK = 512  # samples per silero call @16k
@@ -33,7 +37,8 @@ CANCEL_WINDOW_SECONDS = 3.0
 VAD_THRESHOLD = 0.7  # silero speech probability (default 0.5); higher rejects faint audio
 RMS_GATE_RATIO = 4.0  # speech onset must be this many times louder than the noise floor
 RMS_BARGE_RATIO = 8.0  # stricter gate while TTS speaks; passing it interrupts the speech
-WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
+# size (small/large-v3-turbo) chosen at setup time via ~/.config/open-voice/config.json
+WHISPER_MODEL = whisper_model_repo()
 WHISPER_LANGUAGE = "pt"
 TTS_DAEMON_URL = "http://127.0.0.1:8765"
 
@@ -51,20 +56,12 @@ def _beep(sound: str) -> None:
 
 
 def find_claude_pane() -> str:
-    out = subprocess.run(
-        ["herdr", "pane", "list"], capture_output=True, text=True, check=True
-    ).stdout
-    panes = json.loads(out)["result"]["panes"]
-    claude = [p for p in panes if p.get("agent") == "claude"]
-    if not claude:
-        sys.exit("No pane running Claude Code found in herdr.")
-    focused = [p for p in claude if p.get("focused")]
-    if focused:
-        return focused[0]["pane_id"]
-    if len(claude) == 1:
-        return claude[0]["pane_id"]
-    ids = ", ".join(p["pane_id"] for p in claude)
-    sys.exit(f"Multiple Claude panes active ({ids}) and none focused — use --pane.")
+    pane = MUX.find_claude_pane()
+    if pane is None:
+        sys.exit(f"No pane running Claude Code found in {MUX.name} — use --pane.")
+    if pane == "AMBIGUOUS":
+        sys.exit("Multiple Claude panes active and none focused — use --pane.")
+    return pane
 
 
 def _output_is_builtin_speakers() -> bool:
@@ -206,14 +203,10 @@ def composer_draft(pane_id: str) -> str:
     horizontal-rule lines; anything after the `❯` (including wrapped lines
     up to the bottom rule) is user draft.
     """
-    result = subprocess.run(
-        ["herdr", "pane", "read", pane_id, "--source", "detection", "--lines", "20"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
+    screen = MUX.read_screen(pane_id, 20)
+    if not screen:
         return ""
-    lines = result.stdout.splitlines()
+    lines = screen.splitlines()
     starts = [i for i, line in enumerate(lines) if line.lstrip().startswith("❯")]
     if not starts:
         return ""
@@ -232,11 +225,7 @@ def composer_draft(pane_id: str) -> str:
 
 
 def append_to_composer(pane_id: str, text: str) -> None:
-    subprocess.run(
-        ["herdr", "pane", "send-text", pane_id, f" {text}"],
-        capture_output=True,
-        text=True,
-    )
+    MUX.send_text(pane_id, f" {text}")
 
 
 def _stop_tts() -> None:
@@ -247,17 +236,13 @@ def _stop_tts() -> None:
 
 
 def _act_send_message(pane_id: str) -> None:
-    subprocess.run(
-        ["herdr", "pane", "send-keys", pane_id, "enter"], capture_output=True
-    )
+    MUX.send_enter(pane_id)
     _beep("Glass")
 
 
 def _act_pause_execution(pane_id: str) -> None:
     _stop_tts()
-    subprocess.run(
-        ["herdr", "agent", "send-keys", pane_id, "esc"], capture_output=True
-    )
+    MUX.send_esc(pane_id)
 
 
 def _act_stop_media(pane_id: str) -> None:
@@ -390,8 +375,9 @@ Commands require explicit wording; anything vague or conversational is send.
 
 ROUTE_LABELS = {"send", "cancel", *INTENT_ACTIONS}
 COMMAND_MAX_WORDS = 8
-# small local model: ~100ms per classification, no network, no credentials
-ROUTER_MODEL = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+# small local model: ~100ms per classification, no network, no credentials;
+# size (0.5B/1.5B) chosen at setup time via ~/.config/open-voice/config.json
+ROUTER_MODEL = router_model_repo()
 _router_model = None
 
 
@@ -429,16 +415,10 @@ def route(text: str) -> str:
 
 
 def send_to_claude(pane_id: str, text: str) -> bool:
-    result = subprocess.run(
-        ["herdr", "agent", "prompt", pane_id, text, "--wait", "--timeout", "600000"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout).strip()
-        log(f"herdr rejected the prompt for {pane_id}: {err[:300]}")
-        return False
-    return True
+    ok, err = MUX.prompt(pane_id, text)
+    if not ok:
+        log(f"{MUX.name} rejected the prompt for {pane_id}: {err[:300]}")
+    return ok
 
 
 def wait_tts_idle() -> None:
@@ -516,19 +496,15 @@ def _watch_pane(pane_id: str) -> None:
                 log("TTS daemon down — restarting it")
                 _restart_tts_daemon()
                 daemon_failures = 0
-        # agent get fails both when the pane closed and when the claude process
+        # the check fails both when the pane closed and when the claude process
         # exited (e.g. Ctrl+C) while the shell stayed — either way, voice off
-        result = subprocess.run(
-            ["herdr", "agent", "get", pane_id], capture_output=True, text=True
-        )
-        alive = result.returncode == 0 and '"agent":"claude"' in result.stdout.replace(" ", "")
-        if alive:
+        if MUX.agent_alive(pane_id):
             failures = 0
         else:
             failures += 1
-            # herdr re-detection windows fail transiently; require a sustained
-            # outage (~40s) before concluding the session is really gone
-            log(f"agent check failed ({failures}/4): {(result.stderr or result.stdout)[:120]!r}")
+            # detection windows fail transiently; require a sustained outage
+            # (~40s) before concluding the session is really gone
+            log(f"agent check failed ({failures}/4)")
         if failures >= 4:
             log("claude session gone — shutting voice mode down")
             from open_voice.flag import disable
@@ -603,10 +579,7 @@ def main() -> None:
                 # nothing since): append the new utterance and flush with Enter
                 append_to_composer(pane_id, final)
                 time.sleep(0.3)
-                subprocess.run(
-                    ["herdr", "pane", "send-keys", pane_id, "enter"],
-                    capture_output=True,
-                )
+                MUX.send_enter(pane_id)
                 log("flushed orphaned composer text with Enter")
                 appended_orphan = None
                 _beep("Glass")

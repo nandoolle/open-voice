@@ -1,7 +1,7 @@
 """open-voice-setup: one-command install of the voice loop for Claude Code.
 
 Installs the /voice-on and /voice-off slash commands, the Claude Code hooks
-(Stop TTS + 🔊 reminder), the anti-hint setting, checks herdr and microphone
+(Stop TTS + 🔊 reminder), the anti-hint setting, checks the multiplexer and microphone
 access, and pre-downloads the models.
 """
 
@@ -12,7 +12,49 @@ import subprocess
 import sys
 from pathlib import Path
 
+from open_voice import config as ov_config
+
 CLAUDE_DIR = Path.home() / ".claude"
+
+
+def _choose(label: str, options: list[str], default: str) -> str:
+    if not sys.stdin.isatty():
+        return default
+    menu = ", ".join(f"[{o}]" if o == default else o for o in options)
+    while True:
+        answer = input(f"    {label} ({menu}): ").strip().lower() or default
+        if answer in options:
+            return answer
+        print(f"    pick one of: {', '.join(options)}")
+
+
+def configure(args) -> dict:
+    _step("configuration (~/.config/open-voice/config.json)")
+    # defaults: router size picked by available RAM, multiplexer is herdr
+    router_rec = ov_config.recommended_router_model()
+    whisper_rec = ov_config.recommended_whisper_model()
+    cfg = {
+        "router_model": args.router_model
+        or _choose(
+            f"router model (Qwen2.5; {router_rec} recommended for this machine's RAM)",
+            list(ov_config.ROUTER_MODELS),
+            router_rec,
+        ),
+        "whisper_model": args.whisper_model
+        or _choose(
+            f"whisper model (STT; {whisper_rec} recommended for this machine's RAM)",
+            list(ov_config.WHISPER_MODELS),
+            whisper_rec,
+        ),
+        "multiplexer": args.multiplexer
+        or _choose("multiplexer", list(ov_config.MULTIPLEXERS), ov_config.DEFAULTS["multiplexer"]),
+    }
+    ov_config.save(cfg)
+    print(
+        f"    saved: router {cfg['router_model']}, whisper {cfg['whisper_model']}, "
+        f"multiplexer {cfg['multiplexer']}"
+    )
+    return cfg
 
 
 def _bin(name: str) -> str:
@@ -79,12 +121,13 @@ def install_settings() -> None:
     print(f"    merged into {path}")
 
 
-def check_herdr() -> bool:
-    _step("herdr")
-    if shutil.which("herdr"):
+def check_multiplexer(name: str) -> bool:
+    _step(name)
+    if shutil.which(name):
         print("    found in PATH")
         return True
-    print("    NOT FOUND — open-voice requires herdr (https://herdr.dev).")
+    hint = {"herdr": "https://herdr.dev", "tmux": "brew install tmux", "zellij": "brew install zellij"}[name]
+    print(f"    NOT FOUND — install it first ({hint}) or rerun setup with another --multiplexer.")
     return False
 
 
@@ -115,12 +158,12 @@ def download_models() -> None:
 
     load_silero_vad()
 
-    print("    whisper (mlx-community/whisper-large-v3-turbo)...")
+    print(f"    whisper ({ov_config.whisper_model_repo()})...")
     from open_voice.listen import transcribe
 
     transcribe(np.zeros(16_000, dtype=np.float32))
 
-    print("    router (Qwen2.5-1.5B-Instruct-4bit)...")
+    print(f"    router ({ov_config.router_model_repo()})...")
     from open_voice.listen import _router
 
     _router()
@@ -137,19 +180,35 @@ def main() -> None:
     parser.add_argument(
         "--skip-models", action="store_true", help="skip pre-downloading the models"
     )
+    parser.add_argument(
+        "--router-model",
+        choices=list(ov_config.ROUTER_MODELS),
+        help="Qwen router size (skips the interactive question)",
+    )
+    parser.add_argument(
+        "--whisper-model",
+        choices=list(ov_config.WHISPER_MODELS),
+        help="whisper STT size (skips the interactive question)",
+    )
+    parser.add_argument(
+        "--multiplexer",
+        choices=list(ov_config.MULTIPLEXERS),
+        help="terminal multiplexer backend (skips the interactive question)",
+    )
     args = parser.parse_args()
 
     print("open-voice setup")
+    cfg = configure(args)
     install_commands()
     install_settings()
-    herdr_ok = check_herdr()
+    mux_ok = check_multiplexer(cfg["multiplexer"])
     mic_ok = check_microphone()
     if not args.skip_models:
         download_models()
 
     _step("done")
-    if herdr_ok and mic_ok:
-        print("    start a Claude Code session inside herdr and run /voice-on.")
+    if mux_ok and mic_ok:
+        print(f"    start a Claude Code session inside {cfg['multiplexer']} and run /voice-on.")
     else:
         print("    fix the items marked FAILED/NOT FOUND above, then rerun setup.")
 

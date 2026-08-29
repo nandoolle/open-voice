@@ -1,7 +1,6 @@
 """Voice mode toggles, installed as the open-voice-on / open-voice-off commands."""
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -40,7 +39,9 @@ def voice_on() -> None:
         _spawn("open-voice-tts-daemon", [], "open-voice-tts.log")
         print("TTS daemon starting (log: ~/.claude/open-voice-tts.log)")
 
-    pane = os.environ.get("HERDR_PANE_ID")
+    from open_voice.mux import current_pane_from_env, get_mux
+
+    pane = current_pane_from_env(get_mux())
     if _running("open-voice-listen"):
         try:
             active = json.loads(STATE_PATH.read_text())["pane"]

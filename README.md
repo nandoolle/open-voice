@@ -1,55 +1,46 @@
 # open-voice
 
-Hands-free voice loop for [Claude Code](https://claude.com/claude-code), fully local: your microphone is transcribed and injected into a Claude Code session, and Claude's replies are spoken back. No audio ever leaves your machine.
-
-## How it works
+Hands-free voice loop for [Claude Code](https://claude.com/claude-code), fully local: your mic is transcribed and injected into a Claude Code session, and Claude's replies are spoken back. No audio ever leaves your machine.
 
 ```
-mic ──▶ silero VAD ──▶ mlx-whisper ──▶ herdr agent prompt ──▶ Claude Code
-                                                                  │
-speakers ◀── sounddevice ◀── Kokoro TTS daemon ◀── Stop hook ◀────┘
+mic ──▶ silero VAD ──▶ whisper ──▶ Qwen router ──▶ multiplexer ──▶ Claude Code
+                                                                       │
+speakers ◀── Kokoro TTS daemon ◀── Stop hook / transcript follower ◀───┘
 ```
 
-Three components:
-
-- **`open-voice-tts-daemon`** — keeps a TTS engine (Kokoro or Chatterbox) warm behind a local HTTP API (`POST /say`, `POST /stop`, `GET /health`, `GET /busy`).
-- **`open-voice-stop-hook`** — a Claude Code `Stop` hook that extracts the final reply of each turn from the transcript, strips markdown, and sends it to the daemon. It is a no-op unless the `~/.claude/voice-enabled` flag exists.
-- **`open-voice-listen`** — hands-free listener: records an utterance (silero VAD with pre-roll, so leading syllables aren't clipped), transcribes it with mlx-whisper, and injects it into a Claude Code pane via [herdr](https://github.com/nandoolle/herdr). It waits for the turn to finish and TTS to go idle before reopening the mic, so the assistant never hears itself.
-
-Both audio ends survive device changes (e.g. a bluetooth headset disconnecting): PortAudio is reinitialized and streams are reopened automatically.
-
-## Requirements
-
-- macOS on Apple Silicon (mlx-whisper requires it; TTS runs on MPS/CPU)
-- Python ≥ 3.12 and [uv](https://docs.astral.sh/uv/)
-- [herdr](https://github.com/nandoolle/herdr) managing your Claude Code panes
-- Microphone permission granted to your terminal app
-
-## Setup
+## Install
 
 ```sh
-git clone https://github.com/nandoolle/open-voice && cd open-voice
-uv sync
-uv run open-voice-setup
+curl -fsSL https://raw.githubusercontent.com/nandoolle/open-voice/main/scripts/install.sh | sh
 ```
 
-The installer writes the `/voice-on` and `/voice-off` slash commands, registers the Claude Code hooks (spoken replies + 🔊 reminder), disables composer prompt suggestions (they confuse the draft detector), checks herdr and microphone access, and pre-downloads the models (pass `--skip-models` to defer that to first use).
+Installs [uv](https://docs.astral.sh/uv/) and open-voice, ensures a multiplexer (installs [herdr](https://github.com/ogulcancelik/herdr) if none of herdr/tmux/zellij is present) and runs `open-voice-setup`, which asks three questions — RAM-based recommendations preselected:
+
+| Choice | Options | Default (≥ 16 GB / less) |
+|---|---|---|
+| Qwen router | `0.5b` `1.5b` | `1.5b` / `0.5b` |
+| whisper (STT) | `small` `large-v3-turbo` | `large-v3-turbo` / `small` |
+| multiplexer | `herdr` `tmux` `zellij` | `herdr` |
+
+Answers persist in `~/.config/open-voice/config.json`; flags (`--router-model`, `--whisper-model`, `--multiplexer`, `--skip-models`) skip the questions. Setup also writes the `/voice-on` and `/voice-off` slash commands, registers the Claude Code hooks, and pre-downloads the models.
+
+Requires macOS on Apple Silicon (mlx), Python ≥ 3.12, and microphone permission for your terminal app.
 
 ## Usage
 
-Inside a Claude Code session running under herdr:
+Inside a Claude Code session running under your multiplexer:
 
 ```
 /voice-on    # flag + TTS daemon + listener (one session at a time)
 /voice-off   # stops speech and shuts every open-voice process down
 ```
 
-Voice mode also shuts itself down when the Claude session exits or the pane closes.
+Speak; 2.5 s of silence sends. No wake word: a local Qwen router classifies each utterance — speech for the agent is sent, ambient talk is discarded, and short commands ("envie a mensagem", "pare de falar", "pause a execução", "pare o ditado", "não mande") trigger local actions. After a prompt is accepted there is a 3 s cancel window ("não mande" drops it, more dictation extends it). A typed draft in the composer is appended to, never auto-sent. Earcons mark transitions: Blow (recording), Frog (captured), Purr (cancel window), Glass (sent), Basso (cancelled/off).
 
-There is no wake word: every utterance is routed semantically by `claude -p --model haiku` — speech addressed to the agent is sent, ambient conversation is discarded (default when unsure), and short commands ("envie a mensagem", "pare de falar", "pause a execução", "pare o ditado", "não mande") trigger local actions. After a prompt is accepted there is a 3 s cancel window: say "não mande"/"don't send" to drop it, or keep dictating to extend it. Earcons mark each transition — Tink (mic capturing), Pop (utterance captured), Ping (cancel window), Glass (sent), Bottle (discarded), Basso (cancelled/mic off). Speak; 2.5 s of silence closes the utterance. If you have a typed draft in the composer, the transcription is appended to it instead of being auto-sent. The final reply of each turn is spoken automatically; mid-turn text is spoken live (while tools run) when Claude prefixes it with 🔊 — the transcript follower tails the session JSONL and speaks marked blocks as they arrive. Instruct Claude in your CLAUDE.md to prefix noteworthy mid-turn updates with 🔊.
+The final reply of each turn is spoken automatically; mid-turn text prefixed with 🔊 is spoken live as it arrives. Voice mode shuts itself down when the Claude session exits.
 
-## Configuration
+## Notes
 
-Defaults are pt-BR: Kokoro voice `pf_dora` (`--voice`, `--lang` on the daemon) and whisper language `pt` (`WHISPER_LANGUAGE` in `listen.py`). The daemon also supports `--engine chatterbox` for Chatterbox multilingual TTS.
-
-Logs live in `~/.claude/open-voice-tts.log` and `~/.claude/open-voice-listen.log`.
+- **herdr** is the reference backend (turn tracking, session-aware). **tmux** and **zellij** are best-effort keystroke injection; zellij actions only reach the focused pane.
+- Defaults are pt-BR: Kokoro voice `pf_dora` (`--voice`, `--lang` on the daemon; `--engine chatterbox` for Chatterbox TTS) and whisper language `pt`.
+- Logs: `~/.claude/open-voice-tts.log`, `~/.claude/open-voice-listen.log`.
