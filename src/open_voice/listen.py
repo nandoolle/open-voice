@@ -352,8 +352,11 @@ Examples:
 "não mande isso" -> cancel
 "pode enviar a mensagem" -> send_message
 "pausa a execução" -> pause_execution
+"interrompa a execução" -> pause_execution
 "para a música" -> stop_media
 "fica quieto" -> stop_speaking
+"pare de ler" -> stop_speaking
+"interrompa a leitura" -> stop_speaking
 "desliga o microfone" -> stop_dictation
 "aumenta o som" -> volume_up
 "fala mais baixo" -> volume_down
@@ -405,17 +408,6 @@ def send_to_claude(pane_id: str, text: str) -> bool:
     if not ok:
         log(f"{MUX.name} rejected the prompt for {pane_id}: {err[:300]}")
     return ok
-
-
-def wait_tts_idle() -> None:
-    with httpx.Client(timeout=2) as client:
-        while True:
-            try:
-                if not client.get(f"{TTS_DAEMON_URL}/busy").json()["busy"]:
-                    return
-            except httpx.HTTPError:
-                return  # daemon down: nothing to wait for
-            time.sleep(0.3)
 
 
 def collect_prompt(vad_model, pane_id: str, text: str) -> str | None:
@@ -569,7 +561,6 @@ def main() -> None:
                 log("flushed orphaned composer text with Enter")
                 appended_orphan = None
                 _beep("Glass")
-                wait_tts_idle()
                 continue
             if draft:
                 # user is mid-typing: append the transcription without sending
@@ -583,7 +574,6 @@ def main() -> None:
                 # pane may have changed (new session, closed pane); re-resolve and retry
                 pane_id = args.pane or find_claude_pane()
                 send_to_claude(pane_id, final)
-            wait_tts_idle()
     except KeyboardInterrupt:
         print()
         raise SystemExit(0)

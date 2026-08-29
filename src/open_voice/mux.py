@@ -30,8 +30,6 @@ def _newest_transcript(cwd: str) -> Path | None:
 class HerdrMux:
     name = "herdr"
     pane_env = "HERDR_PANE_ID"
-    # herdr tracks the agent turn itself: prompt blocks until the turn ends
-    blocking_prompt = True
 
     def find_claude_pane(self) -> str | None:
         result = _run(["herdr", "pane", "list"])
@@ -62,9 +60,9 @@ class HerdrMux:
         return result.stdout if result.returncode == 0 else ""
 
     def prompt(self, pane_id: str, text: str) -> tuple[bool, str]:
-        result = _run(
-            ["herdr", "agent", "prompt", pane_id, text, "--wait", "--timeout", "600000"]
-        )
+        # no --wait: the mic must stay open during the turn so voice commands
+        # (pause execution, stop speaking) keep working while Claude runs
+        result = _run(["herdr", "agent", "prompt", pane_id, text])
         return result.returncode == 0, (result.stderr or result.stdout).strip()
 
     def agent_alive(self, pane_id: str) -> bool:
@@ -90,7 +88,6 @@ class HerdrMux:
 class TmuxMux:
     name = "tmux"
     pane_env = "TMUX_PANE"
-    blocking_prompt = False
 
     def find_claude_pane(self) -> str | None:
         result = _run(
@@ -159,7 +156,6 @@ class ZellijMux:
 
     name = "zellij"
     pane_env = None  # composed by current_pane_from_env below
-    blocking_prompt = False
 
     @staticmethod
     def current_pane_from_env() -> str | None:
