@@ -17,7 +17,7 @@ speakers ◀── Kokoro TTS daemon ◀── Stop hook / transcript follower �
 /plugin install open-voice@open-voice
 ```
 
-Then run `/open-voice:voice-on` to finish the installation — the first run installs the runtime and downloads the models (a few GB), so it may take several minutes. The plugin ships the slash commands and hooks; nothing is written to your settings besides `promptSuggestionEnabled`.
+Then run `/open-voice:on` to finish the installation — the first run installs the runtime and downloads the models (a few GB), so it may take several minutes. The plugin ships the slash commands and hooks; nothing is written to your settings besides `promptSuggestionEnabled`.
 
 **Standalone (`curl | sh`, if you prefer not to use the plugin system):**
 

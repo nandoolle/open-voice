@@ -1,5 +1,5 @@
 #!/bin/sh
-# /open-voice:voice-on backend: bootstraps the runtime on first use, then
+# /open-voice:on backend: bootstraps the runtime on first use, then
 # turns voice mode on. Prints machine-readable-ish status lines the command
 # prompt relays to the user.
 set -eu

@@ -7,7 +7,7 @@
     {
       "name": "open-voice",
       "source": "./",
-      "description": "Local hands-free voice loop for Claude Code. After installing, run /open-voice:voice-on to finish the installation."
+      "description": "Local hands-free voice loop for Claude Code. After installing, run /open-voice:on to finish the installation."
     }
   ]
 }
