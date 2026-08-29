@@ -8,7 +8,6 @@ access, and pre-downloads the models.
 import argparse
 import json
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
