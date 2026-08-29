@@ -7,6 +7,11 @@ drains the queue. The model loads once at startup and stays resident.
 import argparse
 import queue
 import threading
+import time
+
+
+def _log(msg: str) -> None:
+    print(f"[tts {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 import numpy as np
 import sounddevice as sd
@@ -77,6 +82,7 @@ def say(req: SayRequest):
     text = req.text.strip()
     if text:
         _say_queue.put(text)
+        _log(f"queued: {text[:60]!r}")
     return {"queued": bool(text)}
 
 
@@ -85,6 +91,7 @@ def stop():
     _drain_queue()
     _interrupt.set()
     sd.stop()
+    _log("stop requested (queue drained)")
     return {"stopped": True}
 
 
@@ -119,13 +126,17 @@ def _speak_loop() -> None:
         except Exception:
             pass
         try:
+            _log(f"speaking: {text[:60]!r}")
             for audio in _engine.synth_chunks(text):
                 if _interrupt.is_set():
+                    _log("interrupted mid-speech")
                     break
                 _play_resilient(audio)
+            else:
+                _log("finished")
         except sd.PortAudioError as exc:
             # no usable audio output right now; drop the utterance, keep the thread alive
-            print(f"[tts] speech dropped, audio unavailable: {exc}", flush=True)
+            _log(f"speech DROPPED, audio unavailable: {exc}")
         finally:
             _speaking.clear()
 
