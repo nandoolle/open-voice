@@ -82,14 +82,24 @@ def main() -> None:
     transcript_path = payload.get("transcript_path")
     if not transcript_path:
         return
-    # Stop may fire before the last message is flushed to the JSONL; brief retry
+    # Stop may fire while the final reply is still flushing to the JSONL —
+    # reading early yields a STALE earlier text, not just an empty one. Wait
+    # until the file stops growing, then require a non-empty extraction.
+    import os
     import time
 
     text = ""
-    for _ in range(8):
-        text = strip_markdown(last_assistant_text(transcript_path))
-        if text:
-            break
+    size = -1
+    for _ in range(10):
+        try:
+            new_size = os.path.getsize(transcript_path)
+        except OSError:
+            return
+        if new_size == size:
+            text = strip_markdown(last_assistant_text(transcript_path))
+            if text:
+                break
+        size = new_size
         time.sleep(0.5)
     if not text:
         return
