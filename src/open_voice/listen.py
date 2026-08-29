@@ -337,9 +337,9 @@ ROUTE_PROMPT = """Classify one voice utterance (any language) with exactly one l
 send = a message for the coding agent (questions, requests, feedback, anything conversational)
 cancel = explicitly asks NOT to send the pending message
 send_message = explicitly asks to submit/send the drafted message
-pause_execution = explicitly asks to pause/interrupt the agent's execution
+pause_execution = explicitly asks to pause/interrupt the agent's execution or work (not its voice)
 stop_media = explicitly asks to stop music/media
-stop_speaking = explicitly asks the voice to stop talking
+stop_speaking = explicitly asks the voice to stop talking/reading aloud (leitura, fala, ditado do assistente)
 stop_dictation = explicitly asks to turn off the microphone/dictation
 volume_up = explicitly asks to raise the volume
 volume_down = explicitly asks to lower the volume
@@ -353,10 +353,12 @@ Examples:
 "pode enviar a mensagem" -> send_message
 "pausa a execução" -> pause_execution
 "interrompa a execução" -> pause_execution
+"stop the execution" -> pause_execution
 "para a música" -> stop_media
 "fica quieto" -> stop_speaking
 "pare de ler" -> stop_speaking
 "interrompa a leitura" -> stop_speaking
+"interrompa o ditado" -> stop_speaking
 "desliga o microfone" -> stop_dictation
 "aumenta o som" -> volume_up
 "fala mais baixo" -> volume_down
@@ -364,6 +366,7 @@ Examples:
 "manda ver" -> send
 
 Commands require explicit wording; anything vague or conversational is send.
+Interrupting the reading/speech (leitura, fala, ditado) is stop_speaking; interrupting the execution/work is pause_execution.
 "{text}" ->"""
 
 ROUTE_LABELS = {"send", "cancel", *INTENT_ACTIONS}
@@ -397,7 +400,9 @@ def route(text: str) -> str:
             [{"role": "user", "content": ROUTE_PROMPT.format(text=text)}],
             add_generation_prompt=True,
         )
-        label = generate(model, tokenizer, prompt=prompt, max_tokens=8).strip().lower()
+        raw = generate(model, tokenizer, prompt=prompt, max_tokens=8)
+        # the model sometimes wraps the label in markdown or quotes
+        label = re.sub(r"[^a-z_]", "", raw.strip().lower())
     except Exception:
         return "send"
     return label if label in ROUTE_LABELS else "send"
