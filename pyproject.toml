@@ -3,6 +3,8 @@ name = "open-voice"
 version = "0.1.0"
 description = "Local voice loop (TTS/STT) for Claude Code via herdr"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Fernando Ollé", email = "fernando.olle@icloud.com" }
 ]
