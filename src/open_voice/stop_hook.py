@@ -84,7 +84,7 @@ def main() -> None:
     import time
 
     text = ""
-    for attempt in range(8):
+    for _ in range(8):
         text = strip_markdown(last_assistant_text(transcript_path))
         if text:
             break

@@ -98,7 +98,6 @@ def record_utterance(
     noise_rms = 0.003  # EMA of the ambient noise floor, seeded conservatively
     audio_q: queue.Queue[np.ndarray] = queue.Queue()
     tts_client = httpx.Client(timeout=2)
-    last_busy_check = 0.0
     deadline = (
         time.monotonic() + first_speech_timeout if first_speech_timeout else None
     )
