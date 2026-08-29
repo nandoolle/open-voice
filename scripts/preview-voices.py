@@ -7,8 +7,9 @@ q or Ctrl+C quits. First play per language loads a pipeline (a few seconds);
 voices not yet cached are downloaded on demand.
 """
 
+import contextlib
 import curses
-import subprocess
+import os
 import sys
 from pathlib import Path
 
@@ -32,10 +33,28 @@ LANGS = {
 _pipelines: dict[str, object] = {}
 
 
-def list_voices() -> list[str]:
-    from huggingface_hub import HfApi
+@contextlib.contextmanager
+def silenced():
+    """Mute stdout/stderr at the fd level: HF download bars, torch warnings and
+    phonemizer chatter would otherwise paint over the curses screen."""
+    saved = os.dup(1), os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(saved[0], 1)
+        os.dup2(saved[1], 2)
+        for fd in (*saved, devnull):
+            os.close(fd)
 
-    files = HfApi().list_repo_files(KOKORO_REPO)
+
+def list_voices() -> list[str]:
+    with silenced():
+        from huggingface_hub import HfApi
+
+        files = HfApi().list_repo_files(KOKORO_REPO)
     return sorted(
         Path(f).stem for f in files if f.startswith("voices/") and f.endswith(".pt")
     )
@@ -46,13 +65,18 @@ def play(voice: str) -> None:
     import sounddevice as sd
 
     lang = voice[0]
-    if lang not in _pipelines:
-        from kokoro import KPipeline
+    with silenced():
+        if lang not in _pipelines:
+            from kokoro import KPipeline
 
-        _pipelines[lang] = KPipeline(lang_code=lang)
-    sd.stop()
-    for _, _, audio in _pipelines[lang](LANGS[lang][1], voice=voice):
-        sd.play(np.asarray(audio), 24_000)
+            _pipelines[lang] = KPipeline(lang_code=lang, repo_id=KOKORO_REPO)
+        sd.stop()
+        chunks = [
+            np.asarray(audio)
+            for _, _, audio in _pipelines[lang](LANGS[lang][1], voice=voice)
+        ]
+    for audio in chunks:
+        sd.play(audio, 24_000)
         sd.wait()
 
 
