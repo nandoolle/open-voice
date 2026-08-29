@@ -25,6 +25,7 @@ import sounddevice as sd
 from open_voice.audio import reset_portaudio
 from open_voice.config import daemon_url, load, router_model_repo, whisper_model_repo
 from open_voice.mux import get_mux
+from open_voice.tools import Ctx, load_tools
 
 MUX = get_mux()
 _CFG = load()
@@ -238,143 +239,43 @@ def _stop_tts() -> None:
         pass
 
 
-def _act_send_message(pane_id: str) -> None:
-    MUX.send_enter(pane_id)
-    _beep("Glass")
-
-
-def _act_pause_execution(pane_id: str) -> None:
-    _stop_tts()
-    MUX.send_esc(pane_id)
-
-
-def _act_stop_media(pane_id: str) -> None:
-    """Press the system Play/Pause media key — macOS routes it to whatever is
-    Now Playing (browser video included). Falls back to AppleScript pause."""
-    try:
-        _press_play_pause()
-        return
-    except Exception:
-        pass
-    for app in ("Spotify", "Music"):
-        subprocess.run(
-            ["osascript", "-e", f'tell application "{app}" to pause'],
-            capture_output=True,
-        )
-
-
-def _press_play_pause() -> None:
-    import Quartz
-    from AppKit import NSEvent
-
-    NX_KEYTYPE_PLAY = 16
-    for down in (True, False):
-        flags = 0xA00 if down else 0xB00
-        data1 = (NX_KEYTYPE_PLAY << 16) | ((0x0A if down else 0x0B) << 8)
-        event = NSEvent.otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
-            14, (0, 0), flags, 0, 0, None, 8, data1, -1
-        )
-        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event.CGEvent())
-
-
-def _act_stop_speaking(pane_id: str) -> None:
-    _stop_tts()
-
-
-def _set_volume(delta: int) -> None:
-    subprocess.run(
-        [
-            "osascript",
-            "-e",
-            f"set volume output volume ((output volume of (get volume settings)) + {delta})",
-        ],
-        capture_output=True,
-    )
-
-
-def _act_volume_up(pane_id: str) -> None:
-    _set_volume(15)
-
-
-def _act_volume_down(pane_id: str) -> None:
-    _set_volume(-15)
-
-
-def _act_repeat_message(pane_id: str) -> None:
-    """Re-speak the last assistant reply from the session transcript."""
-    from open_voice.stop_hook import last_assistant_text, strip_markdown
-    from open_voice.transcript_follower import _say, _transcript_path
-
-    path = _transcript_path(pane_id)
-    text = strip_markdown(last_assistant_text(str(path))) if path else ""
-    if text:
-        _say(text)
-    else:
-        _beep("Basso")
-
-
-def _act_stop_dictation(pane_id: str) -> None:
-    _stop_tts()
-    from open_voice.flag import disable
-
-    disable()
-    _beep("Basso")
-    raise SystemExit(0)
-
-
-INTENT_ACTIONS = {
-    "send_message": _act_send_message,
-    "pause_execution": _act_pause_execution,
-    "stop_media": _act_stop_media,
-    "stop_speaking": _act_stop_speaking,
-    "stop_dictation": _act_stop_dictation,
-    "volume_up": _act_volume_up,
-    "volume_down": _act_volume_down,
-    "repeat_message": _act_repeat_message,
-}
-
-ROUTE_PROMPT = """Classify one voice utterance (any language) with exactly one label:
+ROUTE_HEADER = """Classify one voice utterance (any language) with exactly one label:
 send = a message for the coding agent (questions, requests, feedback, anything conversational)
 cancel = explicitly asks NOT to send the pending message
-send_message = explicitly asks to submit/send the drafted message
-pause_execution = explicitly asks to pause/interrupt the agent's execution or work (not its voice)
-stop_media = explicitly asks to stop music/media
-stop_speaking = explicitly asks the voice to stop talking/reading aloud (leitura, fala, ditado do assistente)
-stop_dictation = explicitly asks to turn off the microphone/dictation
-volume_up = explicitly asks to raise the volume
-volume_down = explicitly asks to lower the volume
-repeat_message = explicitly asks to repeat the last reply
+"""
 
-Examples:
-"oi tudo bem?" -> send
-"muito bem." -> send
-"roda os testes de novo" -> send
-"não mande isso" -> cancel
-"pode enviar a mensagem" -> send_message
-"pausa a execução" -> pause_execution
-"interrompa a execução" -> pause_execution
-"stop the execution" -> pause_execution
-"para a música" -> stop_media
-"fica quieto" -> stop_speaking
-"pare de ler" -> stop_speaking
-"interrompa a leitura" -> stop_speaking
-"interrompa o ditado" -> stop_speaking
-"desliga o microfone" -> stop_dictation
-"aumenta o som" -> volume_up
-"fala mais baixo" -> volume_down
-"repete o que você disse" -> repeat_message
-"repita a última resposta" -> repeat_message
-"repita o seu último prompt" -> repeat_message
-"repete a mensagem" -> repeat_message
-"read that again" -> repeat_message
-"manda ver" -> send
-"muito bem, continua" -> send
+HEAD_EXAMPLES = [
+    ("oi tudo bem?", "send"),
+    ("muito bem.", "send"),
+    ("roda os testes de novo", "send"),
+    ("não mande isso", "cancel"),
+]
+TAIL_EXAMPLES = [
+    ("manda ver", "send"),
+    ("muito bem, continua", "send"),
+]
 
+ROUTE_RULES = """
 Commands require explicit wording; anything vague or conversational is send.
 Interrupting the reading/speech (leitura, fala, ditado) is stop_speaking; interrupting the execution/work is pause_execution.
-"{text}" ->"""
+"""
 
-ROUTE_LABELS = {"send", "cancel", *INTENT_ACTIONS}
+
+def _build_route_prompt(tools: dict) -> str:
+    """Assemble the classifier prompt from the tool registry: each tool
+    contributes its label line and its few-shot examples."""
+    labels = "".join(f"{t.name} = {t.description}\n" for t in tools.values())
+    examples = [*HEAD_EXAMPLES]
+    for tool in tools.values():
+        examples.extend((phrase, tool.name) for phrase in tool.examples)
+    examples.extend(TAIL_EXAMPLES)
+    shots = "".join(f'"{phrase}" -> {label}\n' for phrase, label in examples)
+    return f"{ROUTE_HEADER}{labels}\nExamples:\n{shots}{ROUTE_RULES}"
+
+
+TOOLS = load_tools()
+ROUTE_PROMPT = _build_route_prompt(TOOLS)
+ROUTE_LABELS = {"send", "cancel", *TOOLS}
 COMMAND_MAX_WORDS = 8
 # small local model: ~100ms per classification, no network, no credentials;
 # size (0.5B/1.5B) chosen at setup time via ~/.config/open-voice/config.json
@@ -414,7 +315,7 @@ def _classify(text: str) -> str:
 
     model, tokenizer = _router()
     prompt = tokenizer.apply_chat_template(
-        [{"role": "user", "content": ROUTE_PROMPT.format(text=text)}],
+        [{"role": "user", "content": f'{ROUTE_PROMPT}"{text}" ->'}],
         add_generation_prompt=True,
     )
     cache = make_prompt_cache(model)
@@ -439,7 +340,18 @@ def send_to_claude(pane_id: str, text: str) -> bool:
     return ok
 
 
-def collect_prompt(vad_model, pane_id: str, text: str) -> str | None:
+def run_tool(intent: str, ctx: Ctx, text: str) -> None:
+    log(f"command: {intent}")
+    try:
+        TOOLS[intent].run(ctx, text)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        log(f"tool {intent} failed: {exc}")
+        _beep("Basso")
+
+
+def collect_prompt(vad_model, ctx: Ctx, pane_id: str, text: str) -> str | None:
     """Cancel/continuation window: after a prompt is accepted, keep the mic open
     for CANCEL_WINDOW_SECONDS — a cancel utterance drops it, another prompt
     utterance extends it, silence confirms it."""
@@ -460,9 +372,8 @@ def collect_prompt(vad_model, pane_id: str, text: str) -> str | None:
             log(f"+> {more}")
             text = f"{text} {more}"
             continue
-        if intent in INTENT_ACTIONS:
-            log(f"command: {intent}")
-            INTENT_ACTIONS[intent](pane_id)
+        if intent in TOOLS:
+            run_tool(intent, ctx, more)
             continue
         return text
 
@@ -521,6 +432,15 @@ def _watch_pane(pane_id: str) -> None:
             os._exit(0)
 
 
+def route_cli() -> None:
+    """open-voice-route "phrase" — print the label a phrase routes to. Used by
+    /voice-tool to validate a freshly written tool's EXAMPLES."""
+    if len(sys.argv) < 2:
+        sys.exit('usage: open-voice-route "phrase" [...]')
+    for phrase in sys.argv[1:]:
+        print(f"{phrase!r} -> {route(phrase)}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="open-voice hands-free listener")
     parser.add_argument("--pane", help="target pane (e.g. w1:pD); default: autodetect")
@@ -534,6 +454,7 @@ def main() -> None:
     _router()  # router model warm-up
 
     pane_id = args.pane or find_claude_pane()
+    ctx = Ctx(MUX, pane_id)
 
     import atexit
     import os
@@ -572,12 +493,11 @@ def main() -> None:
             if intent == "cancel":
                 _beep("Basso")
                 continue  # nothing pending to cancel
-            if intent in INTENT_ACTIONS:
-                log(f"command: {intent}")
-                INTENT_ACTIONS[intent](pane_id)
+            if intent in TOOLS:
+                run_tool(intent, ctx, text)
                 continue
             log(f"-> {text}")
-            final = collect_prompt(vad_model, pane_id, text)
+            final = collect_prompt(vad_model, ctx, pane_id, text)
             if final is None:
                 continue
             draft = composer_draft(pane_id)
@@ -602,6 +522,7 @@ def main() -> None:
             if not send_to_claude(pane_id, final):
                 # pane may have changed (new session, closed pane); re-resolve and retry
                 pane_id = args.pane or find_claude_pane()
+                ctx.pane = pane_id
                 send_to_claude(pane_id, final)
     except KeyboardInterrupt:
         print()

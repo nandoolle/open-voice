@@ -39,6 +39,10 @@ Speak; 2.5 s of silence sends. No wake word: a local Qwen router classifies each
 
 The final reply of each turn is spoken automatically; mid-turn text prefixed with 🔊 is spoken live as it arrives. Voice mode shuts itself down when the Claude session exits.
 
+## Custom voice tools
+
+Every voice command is a tool: one Python file exporting `NAME`, `DESCRIPTION`, `EXAMPLES` and `run(ctx, text)`. The built-ins live in `src/open_voice/tools/`; drop your own in `~/.config/open-voice/tools/` (same `NAME` overrides a built-in) and restart voice mode. The router picks them up automatically — labels and few-shots are built from the registry. Ask Claude Code to write one for you with `/voice-tool` (installed by setup), and validate phrases with `open-voice-route "your phrase"`.
+
 ## Notes
 
 - **herdr** is the reference backend (turn tracking, session-aware). **tmux** and **zellij** are best-effort keystroke injection; zellij actions only reach the focused pane.
