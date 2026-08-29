@@ -24,6 +24,10 @@ dependencies = [
 open-voice-tts-daemon = "open_voice.tts_daemon:main"
 open-voice-stop-hook = "open_voice.stop_hook:main"
 open-voice-listen = "open_voice.listen:main"
+open-voice-on = "open_voice.toggle:voice_on"
+open-voice-off = "open_voice.toggle:voice_off"
+open-voice-prompt-hook = "open_voice.prompt_hook:main"
+open-voice-setup = "open_voice.setup:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]

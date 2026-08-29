@@ -522,8 +522,14 @@ def _watch_pane(pane_id: str) -> None:
             ["herdr", "agent", "get", pane_id], capture_output=True, text=True
         )
         alive = result.returncode == 0 and '"agent":"claude"' in result.stdout.replace(" ", "")
-        failures = 0 if alive else failures + 1
-        if failures >= 2:
+        if alive:
+            failures = 0
+        else:
+            failures += 1
+            # herdr re-detection windows fail transiently; require a sustained
+            # outage (~40s) before concluding the session is really gone
+            log(f"agent check failed ({failures}/4): {(result.stderr or result.stdout)[:120]!r}")
+        if failures >= 4:
             log("claude session gone — shutting voice mode down")
             from open_voice.flag import disable
 

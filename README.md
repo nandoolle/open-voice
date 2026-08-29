@@ -30,35 +30,21 @@ Both audio ends survive device changes (e.g. a bluetooth headset disconnecting):
 ```sh
 git clone https://github.com/nandoolle/open-voice && cd open-voice
 uv sync
+uv run open-voice-setup
 ```
 
-Register the Stop hook in `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "uv run --project /path/to/open-voice open-voice-stop-hook"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+The installer writes the `/voice-on` and `/voice-off` slash commands, registers the Claude Code hooks (spoken replies + 🔊 reminder), disables composer prompt suggestions (they confuse the draft detector), checks herdr and microphone access, and pre-downloads the models (pass `--skip-models` to defer that to first use).
 
 ## Usage
 
-```sh
-scripts/voice-on.sh    # flag + TTS daemon + listener (one session at a time)
-scripts/voice-off.sh   # flag off, stop speech, kill listener (daemon stays warm)
+Inside a Claude Code session running under herdr:
+
+```
+/voice-on    # flag + TTS daemon + listener (one session at a time)
+/voice-off   # stops speech and shuts every open-voice process down
 ```
 
-Wire them to `/voice-on` and `/voice-off` slash commands in `~/.claude/commands/` for in-session toggling.
+Voice mode also shuts itself down when the Claude session exits or the pane closes.
 
 There is no wake word: every utterance is routed semantically by `claude -p --model haiku` — speech addressed to the agent is sent, ambient conversation is discarded (default when unsure), and short commands ("envie a mensagem", "pare de falar", "pause a execução", "pare o ditado", "não mande") trigger local actions. After a prompt is accepted there is a 3 s cancel window: say "não mande"/"don't send" to drop it, or keep dictating to extend it. Earcons mark each transition — Tink (mic capturing), Pop (utterance captured), Ping (cancel window), Glass (sent), Bottle (discarded), Basso (cancelled/mic off). Speak; 2.5 s of silence closes the utterance. If you have a typed draft in the composer, the transcription is appended to it instead of being auto-sent. The final reply of each turn is spoken automatically; mid-turn text is spoken live (while tools run) when Claude prefixes it with 🔊 — the transcript follower tails the session JSONL and speaks marked blocks as they arrive. Instruct Claude in your CLAUDE.md to prefix noteworthy mid-turn updates with 🔊.
 
