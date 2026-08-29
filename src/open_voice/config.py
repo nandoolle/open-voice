@@ -19,9 +19,20 @@ WHISPER_MODELS = {
 MULTIPLEXERS = ("herdr", "tmux", "zellij")
 
 DEFAULTS = {
+    # setup-time choices
     "router_model": "1.5b",
     "whisper_model": "large-v3-turbo",
     "multiplexer": "herdr",
+    # runtime tuning (open-voice-config to inspect/change)
+    "whisper_language": "pt",
+    "tts_engine": "kokoro",
+    "tts_voice": "pf_dora",
+    "tts_lang": "p",
+    "daemon_port": 8765,
+    "vad_threshold": 0.7,
+    "rms_gate_ratio": 4.0,
+    "rms_barge_ratio": 8.0,
+    "earcons": True,
 }
 
 RAM_CUT_BYTES = 16 * 1024**3
@@ -73,3 +84,42 @@ def router_model_repo() -> str:
 
 def whisper_model_repo() -> str:
     return WHISPER_MODELS[load()["whisper_model"]]
+
+
+def daemon_url() -> str:
+    return f"http://127.0.0.1:{load()['daemon_port']}"
+
+
+def cli() -> None:
+    """open-voice-config: no args prints the config; `KEY VALUE` sets one key."""
+    args = sys.argv[1:]
+    config = load()
+    if not args:
+        print(f"# {CONFIG_PATH}")
+        for key, value in config.items():
+            print(f"{key} = {json.dumps(value)}")
+        return
+    if len(args) != 2:
+        sys.exit("usage: open-voice-config [KEY VALUE]")
+    key, raw = args
+    if key not in DEFAULTS:
+        sys.exit(f"unknown key {key!r} — known: {', '.join(DEFAULTS)}")
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = raw  # bare strings arrive unquoted
+    if type(value) is not type(DEFAULTS[key]) and not (
+        isinstance(value, (int, float)) and isinstance(DEFAULTS[key], (int, float))
+    ):
+        sys.exit(f"{key} expects {type(DEFAULTS[key]).__name__}, got {value!r}")
+    valid = {
+        "router_model": ROUTER_MODELS,
+        "whisper_model": WHISPER_MODELS,
+        "multiplexer": MULTIPLEXERS,
+        "tts_engine": ("kokoro", "chatterbox"),
+    }
+    if key in valid and value not in valid[key]:
+        sys.exit(f"{key} must be one of: {', '.join(valid[key])}")
+    config[key] = value
+    save(config)
+    print(f"{key} = {json.dumps(value)} (restart voice mode to apply)")

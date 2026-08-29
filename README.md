@@ -42,5 +42,5 @@ The final reply of each turn is spoken automatically; mid-turn text prefixed wit
 ## Notes
 
 - **herdr** is the reference backend (turn tracking, session-aware). **tmux** and **zellij** are best-effort keystroke injection; zellij actions only reach the focused pane.
-- Defaults are pt-BR: Kokoro voice `pf_dora` (`--voice`, `--lang` on the daemon; `--engine chatterbox` for Chatterbox TTS) and whisper language `pt`.
+- Runtime tuning lives in `~/.config/open-voice/config.json` — inspect with `open-voice-config`, change with `open-voice-config KEY VALUE`: whisper language, TTS engine/voice/lang (Kokoro or Chatterbox), daemon port, VAD threshold, energy-gate ratios, earcons on/off. Defaults are pt-BR (Kokoro `pf_dora`, whisper `pt`).
 - Logs: `~/.claude/open-voice-tts.log`, `~/.claude/open-voice-listen.log`.

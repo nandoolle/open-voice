@@ -7,9 +7,10 @@ from pathlib import Path
 
 import httpx
 
+from open_voice.config import daemon_url
 from open_voice.flag import disable, enable
 
-DAEMON_URL = "http://127.0.0.1:8765"
+DAEMON_URL = daemon_url()
 STATE_PATH = Path.home() / ".claude" / "open-voice-listener.json"
 LOG_DIR = Path.home() / ".claude"
 

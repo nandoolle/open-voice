@@ -23,10 +23,11 @@ import numpy as np
 import sounddevice as sd
 
 from open_voice.audio import reset_portaudio
-from open_voice.config import router_model_repo, whisper_model_repo
+from open_voice.config import daemon_url, load, router_model_repo, whisper_model_repo
 from open_voice.mux import get_mux
 
 MUX = get_mux()
+_CFG = load()
 
 VAD_SAMPLE_RATE = 16_000
 VAD_CHUNK = 512  # samples per silero call @16k
@@ -34,13 +35,14 @@ SILENCE_SECONDS = 2.5
 MIN_SPEECH_SECONDS = 0.6
 PREROLL_SECONDS = 1.0  # audio kept before the VAD "start" so leading syllables survive
 CANCEL_WINDOW_SECONDS = 3.0
-VAD_THRESHOLD = 0.7  # silero speech probability (default 0.5); higher rejects faint audio
-RMS_GATE_RATIO = 4.0  # speech onset must be this many times louder than the noise floor
-RMS_BARGE_RATIO = 8.0  # stricter gate while TTS speaks; passing it interrupts the speech
-# size (small/large-v3-turbo) chosen at setup time via ~/.config/open-voice/config.json
+# tunables live in ~/.config/open-voice/config.json (open-voice-config to change)
+VAD_THRESHOLD = _CFG["vad_threshold"]  # silero speech probability; higher rejects faint audio
+RMS_GATE_RATIO = _CFG["rms_gate_ratio"]  # onset must be this many times louder than the noise floor
+RMS_BARGE_RATIO = _CFG["rms_barge_ratio"]  # stricter gate while TTS speaks; passing it barges in
 WHISPER_MODEL = whisper_model_repo()
-WHISPER_LANGUAGE = "pt"
-TTS_DAEMON_URL = "http://127.0.0.1:8765"
+WHISPER_LANGUAGE = _CFG["whisper_language"]
+EARCONS = _CFG["earcons"]
+TTS_DAEMON_URL = daemon_url()
 
 
 def log(msg: str) -> None:
@@ -48,6 +50,8 @@ def log(msg: str) -> None:
 
 
 def _beep(sound: str) -> None:
+    if not EARCONS:
+        return
     subprocess.Popen(
         ["afplay", f"/System/Library/Sounds/{sound}.aiff"],
         stdout=subprocess.DEVNULL,

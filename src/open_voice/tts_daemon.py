@@ -15,10 +15,14 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from open_voice.audio import reset_portaudio
+from open_voice.config import load as load_config
 
-DEFAULT_PORT = 8765
-DEFAULT_VOICE = "pf_dora"  # pt-BR female; lang_code "p" = pt-BR
-DEFAULT_LANG = "p"
+# defaults come from ~/.config/open-voice/config.json; CLI flags override
+_CFG = load_config()
+DEFAULT_PORT = _CFG["daemon_port"]
+DEFAULT_VOICE = _CFG["tts_voice"]
+DEFAULT_LANG = _CFG["tts_lang"]
+DEFAULT_ENGINE = _CFG["tts_engine"]
 
 
 class KokoroEngine:
@@ -149,7 +153,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--voice", default=DEFAULT_VOICE)
     parser.add_argument("--lang", default=DEFAULT_LANG)
-    parser.add_argument("--engine", choices=ENGINES, default="kokoro")
+    parser.add_argument("--engine", choices=ENGINES, default=DEFAULT_ENGINE)
     args = parser.parse_args()
 
     _voice = args.voice

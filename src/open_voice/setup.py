@@ -170,7 +170,8 @@ def download_models() -> None:
     print("    kokoro TTS...")
     from open_voice.tts_daemon import KokoroEngine
 
-    KokoroEngine("p", "pf_dora")
+    cfg = ov_config.load()
+    KokoroEngine(cfg["tts_lang"], cfg["tts_voice"])
     print("    all models ready")
 
 

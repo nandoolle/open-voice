@@ -12,7 +12,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DAEMON_URL = "http://127.0.0.1:8765"
+from open_voice.config import daemon_url
+
+DAEMON_URL = daemon_url()
 # marks a mid-turn block as "speak as it arrives"; the transcript follower reads
 # these in real time, so this hook skips them to avoid speaking twice
 SPEAK_MARKER = "🔊"
