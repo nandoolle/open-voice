@@ -31,8 +31,10 @@ uv tool install --force "$PACKAGE"
 echo "==> running open-voice-setup"
 export PATH="$HOME/.local/bin:$PATH"
 # under `curl | sh` stdin is the pipe; reattach the terminal so the setup
-# questions (router model, multiplexer) stay interactive
-if [ ! -t 0 ] && [ -r /dev/tty ]; then
+# questions (router model, multiplexer) stay interactive. `-r /dev/tty` is not
+# enough: in a session without a controlling terminal the open itself fails,
+# so probe with an actual read redirection
+if [ ! -t 0 ] && (: </dev/tty) 2>/dev/null; then
     open-voice-setup "$@" </dev/tty
 else
     open-voice-setup "$@"
