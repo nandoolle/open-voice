@@ -363,7 +363,12 @@ Examples:
 "aumenta o som" -> volume_up
 "fala mais baixo" -> volume_down
 "repete o que você disse" -> repeat_message
+"repita a última resposta" -> repeat_message
+"repita o seu último prompt" -> repeat_message
+"repete a mensagem" -> repeat_message
+"read that again" -> repeat_message
 "manda ver" -> send
+"muito bem, continua" -> send
 
 Commands require explicit wording; anything vague or conversational is send.
 Interrupting the reading/speech (leitura, fala, ditado) is stop_speaking; interrupting the execution/work is pause_execution.
@@ -393,19 +398,38 @@ def route(text: str) -> str:
     if len(text.split()) > COMMAND_MAX_WORDS:
         return "send"
     try:
-        from mlx_lm import generate
-
-        model, tokenizer = _router()
-        prompt = tokenizer.apply_chat_template(
-            [{"role": "user", "content": ROUTE_PROMPT.format(text=text)}],
-            add_generation_prompt=True,
-        )
-        raw = generate(model, tokenizer, prompt=prompt, max_tokens=8)
-        # the model sometimes wraps the label in markdown or quotes
-        label = re.sub(r"[^a-z_]", "", raw.strip().lower())
+        return _classify(text)
     except Exception:
         return "send"
-    return label if label in ROUTE_LABELS else "send"
+
+
+def _classify(text: str) -> str:
+    """Pick the label whose full sequence (label + newline terminator) has the
+    highest joint log-probability, instead of free generation: deterministic,
+    always a valid label, no parsing. The terminator matters — without it,
+    P("send") absorbs P("send_message") through the shared prefix. Remaining
+    misclassifications degrade to "send", which loses nothing."""
+    import mlx.core as mx
+    from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
+
+    model, tokenizer = _router()
+    prompt = tokenizer.apply_chat_template(
+        [{"role": "user", "content": ROUTE_PROMPT.format(text=text)}],
+        add_generation_prompt=True,
+    )
+    cache = make_prompt_cache(model)
+    prompt_logits = model(mx.array([prompt]), cache=cache)[:, -1, :]
+    best_label, best_score = "send", -float("inf")
+    for label in ROUTE_LABELS:
+        tokens = tokenizer.encode(label + "\n", add_special_tokens=False)
+        logprob, logits = 0.0, prompt_logits
+        for token in tokens:
+            logprob += float((logits[0] - mx.logsumexp(logits[0]))[token])
+            logits = model(mx.array([[token]]), cache=cache)[:, -1, :]
+        trim_prompt_cache(cache, len(tokens))
+        if logprob > best_score:
+            best_label, best_score = label, logprob
+    return best_label
 
 
 def send_to_claude(pane_id: str, text: str) -> bool:
