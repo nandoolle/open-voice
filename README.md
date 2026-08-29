@@ -19,7 +19,7 @@ speakers ◀── Kokoro TTS daemon ◀── Stop hook / transcript follower �
 
 Then run `/open-voice:voice-on` to finish the installation — the first run installs the runtime and downloads the models (a few GB), so it may take several minutes. The plugin ships the slash commands and hooks; nothing is written to your settings besides `promptSuggestionEnabled`.
 
-**Standalone (tmux/zellij users outside the plugin ecosystem):**
+**Standalone (`curl | sh`, if you prefer not to use the plugin system):**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/nandoolle/open-voice/main/scripts/install.sh | sh
