@@ -1,6 +1,6 @@
 {
   "name": "open-voice",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local hands-free voice loop for Claude Code (whisper STT + Kokoro TTS, 100% on-device). After installing, run /open-voice:on to finish the installation — the first run downloads the models and may take several minutes.",
   "author": {
     "name": "Fernando Ollé"
