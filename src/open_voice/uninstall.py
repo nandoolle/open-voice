@@ -29,6 +29,11 @@ def stop_processes() -> None:
 
 def remove_commands() -> None:
     _step("slash commands")
+    # current namespaced layout plus the flat legacy names
+    namespace = CLAUDE_DIR / "commands" / "open-voice"
+    if namespace.exists():
+        shutil.rmtree(namespace)
+        print(f"    removed {namespace}")
     for name in ("voice-on.md", "voice-off.md", "voice-tool.md"):
         path = CLAUDE_DIR / "commands" / name
         if path.exists():

@@ -1,6 +1,6 @@
 """open-voice-setup: one-command install of the voice loop for Claude Code.
 
-Installs the /voice-on and /voice-off slash commands, the Claude Code hooks
+Installs the /open-voice:on, :off and :tool slash commands, the Claude Code hooks
 (Stop TTS + 🔊 reminder), the anti-hint setting, checks the multiplexer and microphone
 access, and pre-downloads the models.
 """
@@ -66,11 +66,12 @@ def _step(msg: str) -> None:
 
 
 def install_commands() -> None:
-    _step("slash commands (/voice-on, /voice-off)")
-    commands = CLAUDE_DIR / "commands"
+    _step("slash commands (/open-voice:on, :off, :tool)")
+    # the subdirectory is the namespace — same API as the Claude Code plugin
+    commands = CLAUDE_DIR / "commands" / "open-voice"
     commands.mkdir(parents=True, exist_ok=True)
     on, off = _bin("open-voice-on"), _bin("open-voice-off")
-    (commands / "voice-on.md").write_text(
+    (commands / "on.md").write_text(
         f"""---
 description: Turn open-voice on (flag + TTS daemon + listener)
 allowed-tools: Bash({on})
@@ -81,7 +82,7 @@ Result: !`{on}`
 Confirm to the user in one line that voice mode is on (or what failed above).
 """
     )
-    (commands / "voice-off.md").write_text(
+    (commands / "off.md").write_text(
         f"""---
 description: Turn open-voice off (flag, speech and all processes)
 allowed-tools: Bash({off})
@@ -93,7 +94,7 @@ Confirm to the user in one line that voice mode is off.
 """
     )
     route_bin = _bin("open-voice-route")
-    (commands / "voice-tool.md").write_text(
+    (commands / "tool.md").write_text(
         f"""---
 description: Create a new open-voice voice tool (voice command for the local voice loop)
 allowed-tools: Write, Read, Bash({route_bin})
@@ -121,7 +122,7 @@ Steps:
 1. Write the file to `~/.config/open-voice/tools/<name>.py`.
 2. Validate routing: run `{route_bin} "<each example phrase>"` and confirm each prints the new NAME.
    If a phrase misroutes, reword DESCRIPTION/EXAMPLES and retry.
-3. Tell the user the tool is ready and that /voice-off + /voice-on reloads it.
+3. Tell the user the tool is ready and that /open-voice:off + /open-voice:on reloads it.
 """
     )
     print(f"    written to {commands}")
@@ -249,7 +250,7 @@ def main() -> None:
 
     _step("done")
     if mux_ok and mic_ok:
-        print(f"    start a Claude Code session inside {cfg['multiplexer']} and run /voice-on.")
+        print(f"    start a Claude Code session inside {cfg['multiplexer']} and run /open-voice:on.")
     else:
         print("    fix the items marked FAILED/NOT FOUND above, then rerun setup.")
 

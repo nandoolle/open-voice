@@ -33,7 +33,7 @@ Installs [uv](https://docs.astral.sh/uv/) and open-voice, ensures a multiplexer 
 | whisper (STT) | `small` `large-v3-turbo` | `large-v3-turbo` / `small` |
 | multiplexer | `herdr` `tmux` `zellij` | `herdr` |
 
-Answers persist in `~/.config/open-voice/config.json`; flags (`--router-model`, `--whisper-model`, `--multiplexer`, `--skip-models`) skip the questions. Setup also writes the `/voice-on` and `/voice-off` slash commands, registers the Claude Code hooks, and pre-downloads the models.
+Answers persist in `~/.config/open-voice/config.json`; flags (`--router-model`, `--whisper-model`, `--multiplexer`, `--skip-models`) skip the questions. Setup also writes the same `/open-voice:on`, `/open-voice:off` and `/open-voice:tool` slash commands the plugin ships, registers the Claude Code hooks, and pre-downloads the models.
 
 Requires macOS on Apple Silicon (mlx), Python ≥ 3.12, and microphone permission for your terminal app.
 
@@ -42,8 +42,8 @@ Requires macOS on Apple Silicon (mlx), Python ≥ 3.12, and microphone permissio
 Inside a Claude Code session running under your multiplexer:
 
 ```
-/voice-on    # flag + TTS daemon + listener (one session at a time)
-/voice-off   # stops speech and shuts every open-voice process down
+/open-voice:on    # flag + TTS daemon + listener (one session at a time)
+/open-voice:off   # stops speech and shuts every open-voice process down
 ```
 
 Speak; 2.5 s of silence sends. No wake word: a local Qwen router classifies each utterance — speech for the agent is sent, ambient talk is discarded, and short commands ("envie a mensagem", "pare de falar", "pause a execução", "pare o ditado", "não mande") trigger local actions. After a prompt is accepted there is a 3 s cancel window ("não mande" drops it, more dictation extends it). A typed draft in the composer is appended to, never auto-sent. Earcons mark transitions: Blow (recording), Frog (captured), Purr (cancel window), Glass (sent), Basso (cancelled/off).
@@ -52,7 +52,7 @@ The final reply of each turn is spoken automatically; mid-turn text prefixed wit
 
 ## Custom voice tools
 
-Every voice command is a tool: one Python file exporting `NAME`, `DESCRIPTION`, `EXAMPLES` and `run(ctx, text)`. The built-ins live in `src/open_voice/tools/`; drop your own in `~/.config/open-voice/tools/` (same `NAME` overrides a built-in) and restart voice mode. The router picks them up automatically — labels and few-shots are built from the registry. Ask Claude Code to write one for you with `/voice-tool` (installed by setup), and validate phrases with `open-voice-route "your phrase"`.
+Every voice command is a tool: one Python file exporting `NAME`, `DESCRIPTION`, `EXAMPLES` and `run(ctx, text)`. The built-ins live in `src/open_voice/tools/`; drop your own in `~/.config/open-voice/tools/` (same `NAME` overrides a built-in) and restart voice mode. The router picks them up automatically — labels and few-shots are built from the registry. Ask Claude Code to write one for you with `/open-voice:tool`, and validate phrases with `open-voice-route "your phrase"`.
 
 ## Notes
 

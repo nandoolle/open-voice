@@ -50,7 +50,7 @@ def voice_on() -> None:
             active = "?"
         if pane and active != pane:
             print(f"⚠️  voice is already active on pane {active} — one session at a time.")
-            print(f"   To switch to this pane ({pane}): run /voice-off, then /voice-on.")
+            print(f"   To switch to this pane ({pane}): run /open-voice:off, then /open-voice:on.")
             return
         print(f"listener already running (target: {active})")
     else:

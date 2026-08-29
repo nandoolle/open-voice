@@ -24,4 +24,4 @@ A tool that needs the pane must handle `ctx.pane is None` (e.g. `ctx.say` an err
 Steps:
 1. Write the file to `~/.config/open-voice/tools/<name>.py`.
 2. Validate routing: run `sh -c 'PATH="$HOME/.local/bin:$PATH" open-voice-route "<each example phrase>"'` and confirm each prints the new NAME. If a phrase misroutes, reword DESCRIPTION/EXAMPLES and retry.
-3. Tell the user the tool is ready and that /voice-off + /voice-on reloads it.
+3. Tell the user the tool is ready and that /open-voice:off + /open-voice:on reloads it.
