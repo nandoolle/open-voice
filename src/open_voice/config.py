@@ -24,10 +24,10 @@ DEFAULTS = {
     "whisper_model": "large-v3-turbo",
     "multiplexer": "herdr",
     # runtime tuning (open-voice-config to inspect/change)
-    "whisper_language": "pt",
+    "whisper_language": "en",
     "tts_engine": "kokoro",
-    "tts_voice": "pf_dora",
-    "tts_lang": "p",
+    "tts_voice": "af_heart",  # en-US female; lang_code "a" = American English
+    "tts_lang": "a",
     "daemon_port": 8765,
     "vad_threshold": 0.7,
     "rms_gate_ratio": 4.0,

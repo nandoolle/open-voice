@@ -48,7 +48,8 @@ def configure(args) -> dict:
         "multiplexer": args.multiplexer
         or _choose("multiplexer", list(ov_config.MULTIPLEXERS), ov_config.DEFAULTS["multiplexer"]),
     }
-    ov_config.save(cfg)
+    # merge over the full config so runtime keys survive a setup rerun
+    ov_config.save({**ov_config.load(), **cfg})
     print(
         f"    saved: router {cfg['router_model']}, whisper {cfg['whisper_model']}, "
         f"multiplexer {cfg['multiplexer']}"
