@@ -1,0 +1,13 @@
+{
+  "name": "open-voice",
+  "owner": {
+    "name": "Fernando Ollé"
+  },
+  "plugins": [
+    {
+      "name": "open-voice",
+      "source": "./",
+      "description": "Local hands-free voice loop for Claude Code. After installing, run /open-voice:voice-on to finish the installation."
+    }
+  ]
+}

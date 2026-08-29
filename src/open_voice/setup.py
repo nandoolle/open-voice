@@ -127,24 +127,26 @@ Steps:
     print(f"    written to {commands}")
 
 
-def install_settings() -> None:
-    _step("Claude Code settings (hooks + composer hints off)")
+def install_settings(plugin_mode: bool) -> None:
+    _step("Claude Code settings" + (" (composer hints off)" if plugin_mode else " (hooks + composer hints off)"))
     path = CLAUDE_DIR / "settings.json"
     settings = json.loads(path.read_text()) if path.exists() else {}
 
-    hooks = settings.setdefault("hooks", {})
+    if not plugin_mode:
+        # in plugin mode the hooks ship with the plugin's hooks.json
+        hooks = settings.setdefault("hooks", {})
 
-    def replace(event: str, command: str) -> None:
-        entries = [
-            e
-            for e in hooks.get(event, [])
-            if not any("open-voice" in h.get("command", "") for h in e.get("hooks", []))
-        ]
-        entries.append({"hooks": [{"type": "command", "command": command}]})
-        hooks[event] = entries
+        def replace(event: str, command: str) -> None:
+            entries = [
+                e
+                for e in hooks.get(event, [])
+                if not any("open-voice" in h.get("command", "") for h in e.get("hooks", []))
+            ]
+            entries.append({"hooks": [{"type": "command", "command": command}]})
+            hooks[event] = entries
 
-    replace("Stop", _bin("open-voice-stop-hook"))
-    replace("UserPromptSubmit", _bin("open-voice-prompt-hook"))
+        replace("Stop", _bin("open-voice-stop-hook"))
+        replace("UserPromptSubmit", _bin("open-voice-prompt-hook"))
     # composer placeholder suggestions are a confirmed source of false positives
     # in the draft detector
     settings["promptSuggestionEnabled"] = False
@@ -228,12 +230,18 @@ def main() -> None:
         choices=list(ov_config.MULTIPLEXERS),
         help="terminal multiplexer backend (skips the interactive question)",
     )
+    parser.add_argument(
+        "--plugin",
+        action="store_true",
+        help="installed via the Claude Code plugin: skip commands and hooks (the plugin ships them)",
+    )
     args = parser.parse_args()
 
     print("open-voice setup")
     cfg = configure(args)
-    install_commands()
-    install_settings()
+    if not args.plugin:
+        install_commands()
+    install_settings(plugin_mode=args.plugin)
     mux_ok = check_multiplexer(cfg["multiplexer"])
     mic_ok = check_microphone()
     if not args.skip_models:
