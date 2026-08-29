@@ -333,19 +333,6 @@ INTENT_ACTIONS = {
     "repeat_message": _act_repeat_message,
 }
 
-# zero-latency fast path for common phrasings; the LLM router covers the rest
-FAST_PATTERNS = [
-    (re.compile(r"\b(envi\w+|manda\w*)\b.*\bmensagem\b"), "send_message"),
-    (re.compile(r"\b(pause?|pausar|pare?|parar)\b.*\bexecu[çc][ãa]o\b"), "pause_execution"),
-    (re.compile(r"\b(pare?|parar|pause?)\b.*\bm[íi]dias?\b|\bm[úu]sica\b"), "stop_media"),
-    (re.compile(r"\b(pare?|parar)\b.*\bfalar\b|\bsil[êe]ncio\b"), "stop_speaking"),
-    (re.compile(r"\b(pare?|parar|deslig\w+)\b.*\b(ditado|microfone|escuta)\b"), "stop_dictation"),
-    (re.compile(r"\bn[ãa]o\s+(mand\w+|envi\w+)\b|\bcancela\w*\b|\bdon'?t\s+send\b"), "cancel"),
-    (re.compile(r"\b(aumenta\w*|sobe|levanta)\b.*\bvolume\b|\bmais\s+alto\b"), "volume_up"),
-    (re.compile(r"\b(diminui\w*|abaixa\w*|desce)\b.*\bvolume\b|\bmais\s+baixo\b"), "volume_down"),
-    (re.compile(r"\brepet\w+\b.*\b(mensagem|resposta|fala)\b"), "repeat_message"),
-]
-
 ROUTE_PROMPT = """Classify one voice utterance (any language) with exactly one label:
 send = a message for the coding agent (questions, requests, feedback, anything conversational)
 cancel = explicitly asks NOT to send the pending message
@@ -394,13 +381,9 @@ def _router():
 
 
 def route(text: str) -> str:
-    """Everything is a message unless an explicit command matches. Commands and
-    cancel must be explicit (fast regex, or haiku for short utterances only);
-    long utterances are dictation and skip the LLM entirely."""
-    low = text.lower()
-    fast = next((i for rx, i in FAST_PATTERNS if rx.search(low)), None)
-    if fast:
-        return fast
+    """Everything is a message unless the router labels it an explicit command.
+    Long utterances are dictation and skip the LLM entirely; short ones are
+    classified by the local Qwen (~0.3s), language-agnostic."""
     if len(text.split()) > COMMAND_MAX_WORDS:
         return "send"
     try:
