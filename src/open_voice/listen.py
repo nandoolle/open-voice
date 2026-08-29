@@ -516,12 +516,15 @@ def _watch_pane(pane_id: str) -> None:
                 log("TTS daemon down — restarting it")
                 _restart_tts_daemon()
                 daemon_failures = 0
+        # agent get fails both when the pane closed and when the claude process
+        # exited (e.g. Ctrl+C) while the shell stayed — either way, voice off
         result = subprocess.run(
-            ["herdr", "pane", "get", pane_id], capture_output=True, text=True
+            ["herdr", "agent", "get", pane_id], capture_output=True, text=True
         )
-        failures = failures + 1 if result.returncode != 0 else 0
+        alive = result.returncode == 0 and '"agent":"claude"' in result.stdout.replace(" ", "")
+        failures = 0 if alive else failures + 1
         if failures >= 2:
-            log("target pane gone — shutting voice mode down")
+            log("claude session gone — shutting voice mode down")
             from open_voice.flag import disable
 
             disable()
