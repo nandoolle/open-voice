@@ -8,21 +8,35 @@ from pathlib import Path
 
 CONFIG_PATH = Path.home() / ".config" / "open-voice" / "config.json"
 
-ROUTER_MODELS = {
-    "0.5b": "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
-    "1.5b": "mlx-community/Qwen2.5-1.5B-Instruct-4bit",
-}
-WHISPER_MODELS = {
-    "small": "mlx-community/whisper-small-mlx",
-    "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
-}
+IS_MAC = sys.platform == "darwin"
+
+# same size keys everywhere; the artifact per platform differs (MLX vs GGUF/CT2)
+if IS_MAC:
+    ROUTER_MODELS = {
+        "0.5b": "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
+        "1.5b": "mlx-community/Qwen2.5-1.5B-Instruct-4bit",
+    }
+    WHISPER_MODELS = {
+        "small": "mlx-community/whisper-small-mlx",
+        "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
+    }
+else:
+    ROUTER_MODELS = {
+        "0.5b": ("Qwen/Qwen2.5-0.5B-Instruct-GGUF", "qwen2.5-0.5b-instruct-q4_k_m.gguf"),
+        "1.5b": ("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+    }
+    # faster-whisper model aliases (resolved to CTranslate2 repos by the lib)
+    WHISPER_MODELS = {
+        "small": "small",
+        "large-v3-turbo": "large-v3-turbo",
+    }
 MULTIPLEXERS = ("herdr", "tmux", "zellij")
 
 DEFAULTS = {
     # setup-time choices
     "router_model": "1.5b",
     "whisper_model": "large-v3-turbo",
-    "multiplexer": "herdr",
+    "multiplexer": "herdr" if IS_MAC else "tmux",
     # runtime tuning (open-voice-config to inspect/change)
     "whisper_language": "en",
     "tts_engine": "kokoro",
@@ -46,7 +60,7 @@ def _total_ram() -> int | None:
             )
             return int(out.stdout.strip())
         return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         return None
 
 

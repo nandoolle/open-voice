@@ -67,11 +67,9 @@ class Ctx:
     def beep(self, sound: str) -> None:
         if not self.config.get("earcons", True):
             return
-        subprocess.Popen(
-            ["afplay", f"/System/Library/Sounds/{sound}.aiff"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        from open_voice import earcons
+
+        earcons.play(sound)
 
     def shell(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(list(args), capture_output=True, text=True)

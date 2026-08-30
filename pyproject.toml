@@ -13,13 +13,19 @@ dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "kokoro>=0.9.4",
-    "mlx-lm>=0.31.3",
-    "mlx-whisper>=0.4.3",
-    "pyobjc-framework-quartz>=12.2.2",
+    "numpy>=1.26",
     "silero-vad>=6.2.1",
     "sounddevice>=0.5.6",
     "soundfile>=0.14.0",
     "uvicorn>=0.52.4",
+    # macOS: Metal via MLX (STT + router)
+    "mlx-lm>=0.31.3; sys_platform == 'darwin'",
+    "mlx-whisper>=0.4.3; sys_platform == 'darwin'",
+    "pyobjc-framework-quartz>=12.2.2; sys_platform == 'darwin'",
+    # Linux: CTranslate2 (STT) + llama.cpp (router)
+    "faster-whisper>=1.1.0; sys_platform == 'linux'",
+    "llama-cpp-python>=0.3.0; sys_platform == 'linux'",
+    "huggingface-hub>=0.23; sys_platform == 'linux'",
 ]
 
 [project.scripts]

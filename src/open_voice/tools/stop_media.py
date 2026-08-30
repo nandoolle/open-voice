@@ -20,6 +20,12 @@ def _press_play_pause():
 
 
 def run(ctx, text):
+    import sys
+
+    if sys.platform != "darwin":
+        # MPRIS covers Spotify, browsers and most Linux players
+        ctx.shell("playerctl", "--all-players", "pause")
+        return
     try:
         _press_play_pause()
         return

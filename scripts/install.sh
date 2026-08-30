@@ -9,6 +9,35 @@ set -eu
 # published package once on PyPI; the git URL is the pre-release source
 PACKAGE="${OPEN_VOICE_PACKAGE:-git+https://github.com/nandoolle/open-voice}"
 
+# Linux: system libraries and build tools the Python deps need (PortAudio for
+# sounddevice, compiler+cmake for llama-cpp-python, git for the source install,
+# tmux as the default multiplexer, procps for pgrep/pkill)
+if [ "$(uname -s)" = "Linux" ]; then
+    NEEDED=""
+    command -v git >/dev/null 2>&1 || NEEDED="$NEEDED git"
+    command -v cc >/dev/null 2>&1 || NEEDED="$NEEDED build-essential"
+    command -v cmake >/dev/null 2>&1 || NEEDED="$NEEDED cmake"
+    command -v pgrep >/dev/null 2>&1 || NEEDED="$NEEDED procps"
+    command -v tmux >/dev/null 2>&1 || NEEDED="$NEEDED tmux"
+    if ! ldconfig -p 2>/dev/null | grep -q libportaudio; then
+        NEEDED="$NEEDED libportaudio2"
+    fi
+    if [ -n "$NEEDED" ]; then
+        if command -v apt-get >/dev/null 2>&1; then
+            SUDO=""
+            [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+            echo "==> installing system packages:$NEEDED"
+            $SUDO apt-get update -qq
+            # shellcheck disable=SC2086
+            $SUDO apt-get install -y -qq $NEEDED
+        else
+            echo "ERROR: missing system packages:$NEEDED" >&2
+            echo "install them with your package manager and rerun this script." >&2
+            exit 1
+        fi
+    fi
+fi
+
 if ! command -v uv >/dev/null 2>&1; then
     echo "==> installing uv (https://astral.sh/uv)"
     curl -fsSL https://astral.sh/uv/install.sh | sh
@@ -26,7 +55,10 @@ if ! command -v herdr >/dev/null 2>&1 \
 fi
 
 echo "==> installing open-voice ($PACKAGE)"
-uv tool install --force "$PACKAGE"
+# en_core_web_sm baked in: kokoro's G2P (misaki→spacy) otherwise tries to
+# download it at runtime, which fails inside a pip-less uv tool env
+SPACY_MODEL="en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+uv tool install --force --with "$SPACY_MODEL" "$PACKAGE"
 
 echo "==> running open-voice-setup"
 export PATH="$HOME/.local/bin:$PATH"

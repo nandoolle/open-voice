@@ -54,11 +54,9 @@ def log(msg: str) -> None:
 def _beep(sound: str) -> None:
     if not EARCONS:
         return
-    subprocess.Popen(
-        ["afplay", f"/System/Library/Sounds/{sound}.aiff"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    from open_voice import earcons
+
+    earcons.play(sound)
 
 
 def find_claude_pane() -> str:
@@ -200,13 +198,26 @@ def trim_repetition(text: str) -> str:
     return re.sub(r"(?i)(\b.{3,80}?)(?:[\s,.!?…-]+\1){2,}", r"\1", text)
 
 
-def transcribe(audio: np.ndarray) -> str:
-    import mlx_whisper
+_whisper = None
 
-    result = mlx_whisper.transcribe(
-        audio, path_or_hf_repo=WHISPER_MODEL, language=WHISPER_LANGUAGE
-    )
-    return trim_repetition(result["text"].strip())
+
+def transcribe(audio: np.ndarray) -> str:
+    if sys.platform == "darwin":
+        import mlx_whisper
+
+        result = mlx_whisper.transcribe(
+            audio, path_or_hf_repo=WHISPER_MODEL, language=WHISPER_LANGUAGE
+        )
+        text = result["text"]
+    else:
+        global _whisper
+        if _whisper is None:
+            from faster_whisper import WhisperModel
+
+            _whisper = WhisperModel(WHISPER_MODEL, device="auto", compute_type="int8")
+        segments, _ = _whisper.transcribe(audio, language=WHISPER_LANGUAGE)
+        text = "".join(segment.text for segment in segments)
+    return trim_repetition(text.strip())
 
 
 def composer_draft(pane_id: str) -> str:
@@ -295,9 +306,14 @@ _router_model = None
 def _router():
     global _router_model
     if _router_model is None:
-        from mlx_lm import load
+        if sys.platform == "darwin":
+            from mlx_lm import load
 
-        _router_model = load(ROUTER_MODEL)
+            _router_model = load(ROUTER_MODEL)
+        else:
+            from open_voice import router_llamacpp
+
+            _router_model = router_llamacpp._load(*ROUTER_MODEL)
     return _router_model
 
 
@@ -319,6 +335,12 @@ def _classify(text: str) -> str:
     always a valid label, no parsing. The terminator matters — without it,
     P("send") absorbs P("send_message") through the shared prefix. Remaining
     misclassifications degrade to "send", which loses nothing."""
+    if sys.platform != "darwin":
+        from open_voice import router_llamacpp
+
+        _router()  # ensure the model is downloaded/loaded
+        return router_llamacpp.classify(*ROUTER_MODEL, ROUTE_PROMPT, ROUTE_LABELS, text)
+
     import mlx.core as mx
     from mlx_lm.models.cache import make_prompt_cache, trim_prompt_cache
 

@@ -161,7 +161,8 @@ def check_multiplexer(name: str) -> bool:
     if shutil.which(name):
         print("    found in PATH")
         return True
-    hint = {"herdr": "https://herdr.dev", "tmux": "brew install tmux", "zellij": "brew install zellij"}[name]
+    pkg = "brew install" if sys.platform == "darwin" else "sudo apt install"
+    hint = {"herdr": "https://herdr.dev", "tmux": f"{pkg} tmux", "zellij": f"{pkg} zellij"}[name]
     print(f"    NOT FOUND — install it first ({hint}) or rerun setup with another --multiplexer.")
     return False
 
@@ -179,8 +180,13 @@ def check_microphone() -> bool:
         return True
     except Exception as exc:
         print(f"    FAILED: {exc}")
-        print("    grant microphone access to your terminal in System Settings →")
-        print("    Privacy & Security → Microphone, then rerun open-voice-setup.")
+        if sys.platform == "darwin":
+            print("    grant microphone access to your terminal in System Settings →")
+            print("    Privacy & Security → Microphone, then rerun open-voice-setup.")
+        else:
+            print("    check that an audio input exists (PulseAudio/PipeWire running,")
+            print("    libportaudio2 installed; on WSL2 you need WSLg for mic passthrough),")
+            print("    then rerun open-voice-setup.")
         return False
 
 
