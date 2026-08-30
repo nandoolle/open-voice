@@ -36,7 +36,7 @@ DEFAULTS = {
     # setup-time choices
     "router_model": "1.5b",
     "whisper_model": "large-v3-turbo",
-    "multiplexer": "herdr" if IS_MAC else "tmux",
+    "multiplexer": "herdr",
     # runtime tuning (open-voice-config to inspect/change)
     "whisper_language": "en",
     "tts_engine": "kokoro",

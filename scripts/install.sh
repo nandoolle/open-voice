@@ -11,14 +11,14 @@ PACKAGE="${OPEN_VOICE_PACKAGE:-git+https://github.com/nandoolle/open-voice}"
 
 # Linux: system libraries and build tools the Python deps need (PortAudio for
 # sounddevice, compiler+cmake for llama-cpp-python, git for the source install,
-# tmux as the default multiplexer, procps for pgrep/pkill)
+# procps for pgrep/pkill). The multiplexer is NOT installed here — the herdr
+# fallback below covers Linux too (linux/x86_64 and linux/aarch64 builds).
 if [ "$(uname -s)" = "Linux" ]; then
     NEEDED=""
     command -v git >/dev/null 2>&1 || NEEDED="$NEEDED git"
     command -v cc >/dev/null 2>&1 || NEEDED="$NEEDED build-essential"
     command -v cmake >/dev/null 2>&1 || NEEDED="$NEEDED cmake"
     command -v pgrep >/dev/null 2>&1 || NEEDED="$NEEDED procps"
-    command -v tmux >/dev/null 2>&1 || NEEDED="$NEEDED tmux"
     if ! ldconfig -p 2>/dev/null | grep -q libportaudio; then
         NEEDED="$NEEDED libportaudio2"
     fi

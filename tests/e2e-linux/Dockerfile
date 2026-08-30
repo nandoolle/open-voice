@@ -3,8 +3,10 @@
 # preinstalled — EVERYTHING the plugin needs must come from install.sh.
 FROM ubuntu:24.04
 
+# tmux preinstalled = the "user already runs Claude Code in a multiplexer"
+# scenario; it also exercises install.sh's skip-herdr-when-a-mux-exists path
 RUN apt-get update -qq && apt-get install -y -qq \
-    curl ca-certificates sudo \
+    curl ca-certificates sudo tmux \
     pulseaudio pulseaudio-utils libasound2-plugins \
     && rm -rf /var/lib/apt/lists/*
 
