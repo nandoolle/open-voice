@@ -18,7 +18,7 @@ DAEMON_URL = daemon_url()
 # marks a mid-turn block as "speak as it arrives"; the transcript follower reads
 # these in real time, so this hook skips them to avoid speaking twice
 SPEAK_MARKER = "🔊"
-FLAG_PATH = Path.home() / ".claude" / "voice-enabled"
+from open_voice.flag import voice_enabled
 MAX_CHARS = 1500
 
 
@@ -76,7 +76,7 @@ def strip_markdown(text: str) -> str:
 
 
 def main() -> None:
-    if not FLAG_PATH.exists():
+    if not voice_enabled():
         return
     payload = json.load(sys.stdin)
     transcript_path = payload.get("transcript_path")

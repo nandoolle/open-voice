@@ -66,13 +66,17 @@ def remove_hooks() -> None:
 
 def remove_state() -> None:
     _step("state and flag files")
-    for name in (
-        "voice-enabled",
-        "open-voice-listener.json",
-        "open-voice-tts.log",
-        "open-voice-listen.log",
-    ):
-        path = CLAUDE_DIR / name
+    from open_voice.flag import FLAG_PATH, _LEGACY_PATH
+
+    candidates = [FLAG_PATH, _LEGACY_PATH] + [
+        CLAUDE_DIR / name
+        for name in (
+            "open-voice-listener.json",
+            "open-voice-tts.log",
+            "open-voice-listen.log",
+        )
+    ]
+    for path in candidates:
         if path.exists():
             path.unlink()
             print(f"    removed {path}")
