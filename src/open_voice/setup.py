@@ -197,6 +197,14 @@ def check_microphone() -> bool:
         recording = sd.rec(int(0.3 * 16_000), samplerate=16_000, channels=1)
         sd.wait()
         level = float(np.abs(recording).max())
+        if level < 1e-6:
+            # the stream opened but delivered pure digital silence: no real
+            # microphone is routed (VM passthrough / OS permission missing)
+            print(f"    WARNING: capture opened but recorded pure silence (peak {level:.4f}).")
+            print("    No real microphone is reaching this system — in a VM, check the")
+            print("    host's microphone permission and audio passthrough; the voice")
+            print("    loop will not hear you until this is fixed.")
+            return False
         print(f"    capture ok (peak {level:.4f})")
         return True
     except Exception as exc:
