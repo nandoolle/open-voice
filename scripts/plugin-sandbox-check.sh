@@ -19,8 +19,10 @@ fi
 [ -z "$missing" ] && [ "$userns_restricted" = "0" ] && exit 0
 
 echo "[open-voice] Claude Code's Bash sandbox is not functional on this Linux machine,"
-echo "so /open-voice:on (and any Bash slash command) will fail with a sandbox error."
-echo "If the user asks about open-voice or hits a sandbox error, instruct them to run:"
+echo "so /open-voice:on (and any Bash slash command) will fail with a sandbox error"
+echo "that gives the user no guidance. IMPORTANT: proactively tell the user at the"
+echo "start of the conversation (in your first reply, one short paragraph) that the"
+echo "sandbox prerequisites are missing and that they should run:"
 [ -n "$missing" ] && echo "  sudo apt install -y$missing"
 if [ "$userns_restricted" = "1" ]; then
     echo "  echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf && sudo sysctl --system"
