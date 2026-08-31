@@ -66,9 +66,10 @@ def remove_hooks() -> None:
 
 def remove_state() -> None:
     _step("state and flag files")
+    from open_voice.config import LISTEN_LOG, STATE_PATH, TTS_LOG
     from open_voice.flag import FLAG_PATH, _LEGACY_PATH
 
-    candidates = [FLAG_PATH, _LEGACY_PATH] + [
+    legacy = [
         CLAUDE_DIR / name
         for name in (
             "open-voice-listener.json",
@@ -76,6 +77,7 @@ def remove_state() -> None:
             "open-voice-listen.log",
         )
     ]
+    candidates = [FLAG_PATH, _LEGACY_PATH, STATE_PATH, TTS_LOG, LISTEN_LOG, *legacy]
     for path in candidates:
         if path.exists():
             path.unlink()

@@ -6,7 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-CONFIG_PATH = Path.home() / ".config" / "open-voice" / "config.json"
+CONFIG_DIR = Path.home() / ".config" / "open-voice"
+CONFIG_PATH = CONFIG_DIR / "config.json"
+# every open-voice file lives here: config, flag, listener state, logs
+STATE_PATH = CONFIG_DIR / "open-voice-listener.json"
+TTS_LOG = CONFIG_DIR / "open-voice-tts.log"
+LISTEN_LOG = CONFIG_DIR / "open-voice-listen.log"
 
 IS_MAC = sys.platform == "darwin"
 

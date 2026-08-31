@@ -417,8 +417,11 @@ def _restart_tts_daemon() -> None:
     """Relaunch the TTS daemon detached, logging to the usual file."""
     from pathlib import Path
 
+    from open_voice.config import TTS_LOG
+
     daemon = Path(sys.executable).parent / "open-voice-tts-daemon"
-    logfile = open(Path.home() / ".claude" / "open-voice-tts.log", "a")
+    TTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+    logfile = open(TTS_LOG, "a")
     subprocess.Popen(
         [str(daemon)], stdout=logfile, stderr=logfile, start_new_session=True
     )
@@ -497,7 +500,9 @@ def main() -> None:
     import threading
     from pathlib import Path
 
-    state = Path.home() / ".claude" / "open-voice-listener.json"
+    from open_voice.config import STATE_PATH as state
+
+    state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(json.dumps({"pid": os.getpid(), "pane": pane_id}))
     atexit.register(lambda: state.unlink(missing_ok=True))
 

@@ -7,12 +7,11 @@ from pathlib import Path
 
 import httpx
 
-from open_voice.config import daemon_url
+from open_voice.config import CONFIG_DIR, STATE_PATH, daemon_url
 from open_voice.flag import disable, enable
 
 DAEMON_URL = daemon_url()
-STATE_PATH = Path.home() / ".claude" / "open-voice-listener.json"
-LOG_DIR = Path.home() / ".claude"
+LOG_DIR = CONFIG_DIR
 
 
 def _bin(name: str) -> str:
@@ -26,6 +25,7 @@ def _running(pattern: str) -> bool:
 
 
 def _spawn(name: str, args: list[str], logfile: str) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     log = open(LOG_DIR / logfile, "a")
     subprocess.Popen(
         [_bin(name), *args], stdout=log, stderr=log, start_new_session=True
@@ -38,7 +38,7 @@ def voice_on() -> None:
         print("TTS daemon already running")
     else:
         _spawn("open-voice-tts-daemon", [], "open-voice-tts.log")
-        print("TTS daemon starting (log: ~/.claude/open-voice-tts.log)")
+        print("TTS daemon starting (log: ~/.config/open-voice/open-voice-tts.log)")
 
     from open_voice.mux import current_pane_from_env, get_mux
 
@@ -59,7 +59,7 @@ def voice_on() -> None:
             ["--pane", pane] if pane else [],
             "open-voice-listen.log",
         )
-        print(f"listener in background (target: {pane or 'autodetect'}; log: ~/.claude/open-voice-listen.log)")
+        print(f"listener in background (target: {pane or 'autodetect'}; log: ~/.config/open-voice/open-voice-listen.log)")
     print("voice mode: ON")
 
 
