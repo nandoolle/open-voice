@@ -7,10 +7,13 @@ set -eu
 export PATH="$HOME/.local/bin:$PATH"
 
 if ! command -v open-voice-on >/dev/null 2>&1; then
+    # the plugin snapshot ships the whole repo: installing script and package
+    # from HERE keeps runtime and plugin at the exact same version
+    ROOT="$(cd "$(dirname "$0")/.." && pwd)"
     echo "FIRST RUN: the open-voice runtime is not installed yet."
     echo "It cannot be installed from inside a Claude session (sandboxed shell)."
     echo "ACTION REQUIRED — tell the user to run this in a regular terminal:"
-    echo "  curl -fsSL https://raw.githubusercontent.com/nandoolle/open-voice/main/scripts/install.sh | sh"
+    echo "  OPEN_VOICE_PACKAGE=\"$ROOT\" sh \"$ROOT/scripts/install.sh\""
     echo "and then run /open-voice:on again."
     exit 0
 fi
