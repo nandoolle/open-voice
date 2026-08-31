@@ -30,13 +30,22 @@ def ensure_flag() -> None:
         FLAG_PATH.write_text("off\n")
 
 
+def _drop_legacy() -> None:
+    # best-effort: inside the Bash sandbox ~/.claude is read-only and unlink
+    # raises EROFS even for a missing file — never let cleanup break a toggle
+    try:
+        _LEGACY_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def enable() -> None:
     FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
     FLAG_PATH.write_text("on\n")
-    _LEGACY_PATH.unlink(missing_ok=True)
+    _drop_legacy()
 
 
 def disable() -> None:
     FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
     FLAG_PATH.write_text("off\n")
-    _LEGACY_PATH.unlink(missing_ok=True)
+    _drop_legacy()
