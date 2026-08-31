@@ -83,7 +83,11 @@ allowed-tools: Bash({on})
 
 Result: !`{on}`
 
-Confirm to the user in one line that voice mode is on (or what failed above).
+Confirm to the user in one line that voice mode is on. If the result is a sandbox
+error instead (socat/bubblewrap missing, bwrap uid map denied, read-only file
+system), explain it comes from Claude Code's Bash sandbox on Linux and tell the
+user to run `open-voice-on` in a regular terminal or switch the sandbox off via
+/sandbox → Regular permissions.
 """
     )
     (commands / "off.md").write_text(
@@ -94,7 +98,8 @@ allowed-tools: Bash({off})
 
 Result: !`{off}`
 
-Confirm to the user in one line that voice mode is off.
+Confirm to the user in one line that voice mode is off. On a sandbox error,
+tell the user to run `open-voice-off` in a regular terminal instead.
 """
     )
     route_bin = _bin("open-voice-route")
