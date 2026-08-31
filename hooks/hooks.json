@@ -1,5 +1,15 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/plugin-sandbox-check.sh\""
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
