@@ -38,7 +38,7 @@ Answers persist in `~/.config/open-voice/config.json`; flags (`--router-model`, 
 Requires Python ≥ 3.12 and microphone access for your terminal app.
 
 - **macOS (Apple Silicon)**: STT and routing run on the GPU via MLX. Grant mic permission in System Settings → Privacy & Security → Microphone.
-- **Linux (beta)**: STT via faster-whisper and routing via llama.cpp, CPU (CUDA planned). `install.sh` installs the system packages it needs (Debian/Ubuntu via apt; other distros: install `git build-essential cmake libportaudio2` first) and falls back to installing herdr when no multiplexer is present. Voice command routing is currently less accurate than on macOS — commands may land in the chat as text instead of firing; a fine-tuned router is in progress.
+- **Linux (beta)**: STT via faster-whisper and routing via llama.cpp, CPU (CUDA planned). `install.sh` installs the system packages it needs (Debian/Ubuntu via apt; other distros: install `git build-essential cmake libportaudio2` first) and falls back to installing herdr when no multiplexer is present. Note: Claude Code's own Bash sandbox on Linux needs `socat` and `bubblewrap` (`sudo apt install socat bubblewrap`) — without them any slash command errors out before open-voice even runs. Voice command routing is currently less accurate than on macOS — commands may land in the chat as text instead of firing; a fine-tuned router is in progress.
 - **Windows**: supported via WSL2 — needs WSLg (Windows 11) for microphone passthrough; follow the Linux path inside WSL.
 
 ## Usage

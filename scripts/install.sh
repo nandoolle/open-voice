@@ -19,6 +19,10 @@ if [ "$(uname -s)" = "Linux" ]; then
     command -v cc >/dev/null 2>&1 || NEEDED="$NEEDED build-essential"
     command -v cmake >/dev/null 2>&1 || NEEDED="$NEEDED cmake"
     command -v pgrep >/dev/null 2>&1 || NEEDED="$NEEDED procps"
+    # not open-voice deps: Claude Code's own Bash sandbox needs these on Linux,
+    # and its absence surfaces as an error inside our slash commands
+    command -v socat >/dev/null 2>&1 || NEEDED="$NEEDED socat"
+    command -v bwrap >/dev/null 2>&1 || NEEDED="$NEEDED bubblewrap"
     if ! ldconfig -p 2>/dev/null | grep -q libportaudio; then
         NEEDED="$NEEDED libportaudio2"
     fi
@@ -27,9 +31,15 @@ if [ "$(uname -s)" = "Linux" ]; then
             SUDO=""
             [ "$(id -u)" -ne 0 ] && SUDO="sudo"
             echo "==> installing system packages:$NEEDED"
-            $SUDO apt-get update -qq
             # shellcheck disable=SC2086
-            $SUDO apt-get install -y -qq $NEEDED
+            if ! $SUDO apt-get update -qq || ! $SUDO apt-get install -y -qq $NEEDED; then
+                # sudo cannot run inside Claude Code's Bash sandbox
+                # (no_new_privileges), and may be unavailable elsewhere too
+                echo "ERROR: could not install system packages automatically." >&2
+                echo "Run this in a regular terminal, then retry:" >&2
+                echo "  sudo apt-get install -y$NEEDED" >&2
+                exit 1
+            fi
         else
             echo "ERROR: missing system packages:$NEEDED" >&2
             echo "install them with your package manager and rerun this script." >&2
@@ -58,7 +68,24 @@ echo "==> installing open-voice ($PACKAGE)"
 # en_core_web_sm baked in: kokoro's G2P (misaki→spacy) otherwise tries to
 # download it at runtime, which fails inside a pip-less uv tool env
 SPACY_MODEL="en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
-uv tool install --force --with "$SPACY_MODEL" "$PACKAGE"
+# Linux: PyPI's torch is the CUDA build (~3GB of nvidia wheels); use the CPU
+# index unless the user opts into CUDA with OPEN_VOICE_CUDA=1
+TORCH_ARGS=""
+if [ "$(uname -s)" = "Linux" ] && [ "${OPEN_VOICE_CUDA:-0}" != "1" ]; then
+    TORCH_ARGS="--index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match"
+fi
+# pytorch's CDN intermittently drops TLS handshakes under uv; each attempt
+# makes progress through uv's cache, so a short retry loop converges
+n=1
+until
+    # shellcheck disable=SC2086
+    uv tool install --force --with "$SPACY_MODEL" $TORCH_ARGS "$PACKAGE"
+do
+    [ "$n" -ge 3 ] && { echo "ERROR: install failed after $n attempts." >&2; exit 1; }
+    n=$((n + 1))
+    echo "==> transient download failure, retrying ($n/3)..."
+    sleep 2
+done
 
 echo "==> running open-voice-setup"
 export PATH="$HOME/.local/bin:$PATH"
