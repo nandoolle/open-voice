@@ -10,6 +10,8 @@ which is a protected path of Claude Code's Bash sandbox on Linux.
 from pathlib import Path
 
 FLAG_PATH = Path.home() / ".config" / "open-voice" / "voice-enabled"
+# TODO(remove after 2026-09-30): legacy flag migration (~7 users on the old
+# path as of 2026-08-31) — delete _LEGACY_PATH and every reference to it
 _LEGACY_PATH = Path.home() / ".claude" / "voice-enabled"
 
 
