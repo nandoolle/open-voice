@@ -430,10 +430,15 @@ def _watch_pane(pane_id: str) -> None:
     the TTS daemon if it dies (device changes and memory pressure kill it)."""
     import os
 
+    from open_voice.flag import voice_enabled
+
     failures = 0
     daemon_failures = 0
     while True:
         time.sleep(10)
+        if not voice_enabled():
+            log("voice-enabled flag is off — exiting")
+            os._exit(0)
         try:
             httpx.get(f"{TTS_DAEMON_URL}/health", timeout=2)
             daemon_failures = 0
@@ -504,8 +509,15 @@ def main() -> None:
     log(f"ready — target: {pane_id}. Speak; {SILENCE_SECONDS}s of silence sends.")
 
     appended_orphan: str | None = None
+    from open_voice.flag import voice_enabled
+
     try:
         while True:
+            # obeying the flag lets a sandboxed /open-voice:off stop the loop
+            # by writing "off" — no signal delivery required
+            if not voice_enabled():
+                log("voice-enabled flag is off — exiting")
+                raise SystemExit(0)
             try:
                 audio = record_utterance(vad_model)
             except sd.PortAudioError:

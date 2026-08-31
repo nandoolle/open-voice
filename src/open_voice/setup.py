@@ -50,6 +50,10 @@ def configure(args) -> dict:
     }
     # merge over the full config so runtime keys survive a setup rerun
     ov_config.save({**ov_config.load(), **cfg})
+    # created here (outside any sandbox) so /open-voice:on|off only ever write
+    from open_voice.flag import ensure_flag
+
+    ensure_flag()
     print(
         f"    saved: router {cfg['router_model']}, whisper {cfg['whisper_model']}, "
         f"multiplexer {cfg['multiplexer']}"
@@ -151,6 +155,18 @@ def install_settings(plugin_mode: bool) -> None:
     # composer placeholder suggestions are a confirmed source of false positives
     # in the draft detector
     settings["promptSuggestionEnabled"] = False
+
+    # sandboxed /open-voice:off needs to write the flag and reach the daemon;
+    # these grants are additive and harmless when the sandbox is disabled
+    port = ov_config.load()["daemon_port"]
+    sandbox = settings.setdefault("sandbox", {})
+    writes = sandbox.setdefault("filesystem", {}).setdefault("allowWrite", [])
+    if "~/.config/open-voice" not in writes:
+        writes.append("~/.config/open-voice")
+    domains = sandbox.setdefault("network", {}).setdefault("allowedDomains", [])
+    for host in (f"127.0.0.1:{port}", f"localhost:{port}"):
+        if host not in domains:
+            domains.append(host)
 
     path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
     print(f"    merged into {path}")
